@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# uv / virtualenvs
+.venv/
+.python-version
+
+# Pipeline outputs
+output/
+
+# Raw vendor downloads — re-fetchable via scripts/refresh_*.py or
+# curl from the documented URLs. Do not commit large or redundant copies.
+# Canonical refreshed yamls under data/industry/ and data/macro_inputs/
+# remain tracked.
+data/sec/**/*.htm
+data/sec/**/*.xml
+data/sec/financial_statement_data_sets/*.zip
+data/sec/financial_statement_data_sets/*/
+data/ir/**/*.htm
+data/macro/fred/*.csv
+data/macro/damodaran/*.xls
+data/macro/damodaran/*.xlsx
+data/reference/*.htm
+data/reference/*.xlsx
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
