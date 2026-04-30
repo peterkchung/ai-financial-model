@@ -3,13 +3,13 @@
 # cell comments (e.g. "Pipeline field: pl.net_sales.fy_latest"); the populator
 # scans for those comments, resolves each path against the data, and writes.
 # Cells whose fields are None in the data are left empty with a reason-code
-# comment — never filled with zeros (per PRD §13: "no hallucinated numbers").
+# comment — never filled with zeros.
 
 from __future__ import annotations
 from pathlib import Path
 import re
 import shutil
-from typing import Any
+from typing import Any, Optional
 
 from openpyxl import load_workbook
 from openpyxl.comments import Comment
@@ -45,20 +45,28 @@ def populate_template(
     extracted: ExtractedFinancials,
     template_path: Path,
     output_path: Path,
-) -> dict[str, int]:
+    provenance: Optional[dict[str, str]] = None,
+) -> dict[str, Any]:
     """Copy the blank template to `output_path`, then write all resolvable
-    fields into their tagged cells. Returns a small report dict.
+    fields into their tagged cells.
 
-    The output preserves the template's formulas, formatting, and color coding.
+    Returns a report dict with summary counts and a per-cell trail suitable
+    for serialization to audit.json. The trail entries record the schema
+    field, the resolved value (or None), the source ingester (looked up from
+    `provenance`, when supplied), and the cell coordinate.
+
+    Output preserves the template's formulas, formatting, and color coding.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy(template_path, output_path)
 
+    provenance = provenance or {}
     wb = load_workbook(output_path)
     populated = 0
     skipped_missing = 0
     default_kept = 0
     seen = 0
+    cells: list[dict[str, Any]] = []
 
     for ws in wb.worksheets:
         for row in ws.iter_rows():
@@ -71,30 +79,47 @@ def populate_template(
                 seen += 1
                 path = m.group(1)
                 value = _resolve(extracted, path)
+                source = provenance.get(path)
+
                 if value is None:
-                    # Cell already has a default → preserve it (the template
-                    # sometimes ships defaults for tunable inputs the analyst
-                    # may want even without a live data source). Truly empty
-                    # cells get the NO_VALUE_EXTRACTED reason code.
                     if cell.value is None:
                         skipped_missing += 1
+                        status = "no_value_extracted"
                         cell.comment = Comment(
                             f"Pipeline field: {path}\nReason: NO_VALUE_EXTRACTED",
                             "pipeline",
                         )
                     else:
                         default_kept += 1
+                        status = "default_kept"
                         cell.comment = Comment(
                             f"Pipeline field: {path}\nNo extraction; template default retained.",
                             "pipeline",
                         )
+                    cells.append({
+                        "sheet": ws.title,
+                        "cell": cell.coordinate,
+                        "schema_field": path,
+                        "value": cell.value,
+                        "source": source,
+                        "status": status,
+                    })
                     continue
+
                 cell.value = value
                 cell.comment = Comment(
-                    f"Pipeline field: {path}\nSource: {extracted.meta.source or 'unknown'}",
+                    f"Pipeline field: {path}\nSource: {source or extracted.meta.source or 'unknown'}",
                     "pipeline",
                 )
                 populated += 1
+                cells.append({
+                    "sheet": ws.title,
+                    "cell": cell.coordinate,
+                    "schema_field": path,
+                    "value": value,
+                    "source": source or extracted.meta.source,
+                    "status": "populated",
+                })
 
     wb.save(output_path)
     return {
@@ -102,4 +127,5 @@ def populate_template(
         "populated": populated,
         "default_kept": default_kept,
         "skipped_missing": skipped_missing,
+        "cells": cells,
     }

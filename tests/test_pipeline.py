@@ -27,7 +27,7 @@ needs_data = pytest.mark.skipif(
 @needs_data
 def test_orchestrator_amzn_extracts_core_financials():
     cfg = load_company_config(COMPANY)
-    data = ingest_all(cfg)
+    data, provenance = ingest_all(cfg)
 
     assert data.meta.cik == 1018724
     assert data.pl.net_sales.fy_latest == pytest.approx(716_924, rel=1e-3)
@@ -49,14 +49,25 @@ def test_orchestrator_amzn_extracts_core_financials():
     assert "macro:" in (data.meta.source or "")
     assert "industry:inline" in (data.meta.source or "")
 
+    # Provenance map records the source for each populated path
+    assert provenance.get("pl.net_sales.fy_latest", "").startswith("sec-fsds")
+    assert provenance.get("macro.risk_free_rate", "").startswith("macro:")
+    assert provenance.get("industry.levered_beta") == "industry:inline"
+
 
 @needs_data
 def test_orchestrator_to_validated_workbook(tmp_path: Path):
     cfg = load_company_config(COMPANY)
-    data = ingest_all(cfg)
+    data, provenance = ingest_all(cfg)
     out = tmp_path / "model.xlsx"
-    populate_template(data, TEMPLATE, out)
+    pop = populate_template(data, TEMPLATE, out, provenance=provenance)
     report = validate_workbook(out)
 
     failed = [f for f in report.findings if f.severity == Severity.RED]
     assert not failed, f"Validation regressed:\n{report.summary()}"
+
+    # Audit trail: every populated cell has a recognized source
+    populated = [c for c in pop["cells"] if c["status"] == "populated"]
+    assert populated, "expected at least one populated cell"
+    assert all(c["source"] for c in populated), \
+        "every populated cell should record its source"

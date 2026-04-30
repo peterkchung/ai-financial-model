@@ -8,10 +8,14 @@
 # overlapping fields (config order = precedence). Lists are concatenated.
 # The top-level `industry:` block in the company config wins last — those
 # values are the analyst's deliberate calibration.
+#
+# The orchestrator also tracks per-field provenance — which ingester (or
+# inline block) contributed each value — so the populator can surface that
+# in audit.json.
 
 from __future__ import annotations
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import yaml
 
@@ -81,22 +85,57 @@ def _deep_merge(a: Any, b: Any) -> Any:
     return b if b is not None else a
 
 
-def ingest_all(config: dict[str, Any]) -> ExtractedFinancials:
+def _walk_paths(obj: Any, prefix: str = "") -> Iterable[tuple[str, Any]]:
+    """Yield (dotted_path, value) for every non-None leaf of a Pydantic model
+    or nested dict/list. List elements get [i] indexing in the path."""
+    if hasattr(obj, "model_dump"):
+        d = obj.model_dump()
+    elif isinstance(obj, dict):
+        d = obj
+    else:
+        if obj is not None:
+            yield prefix, obj
+        return
+    for k, v in d.items():
+        path = f"{prefix}.{k}" if prefix else k
+        if isinstance(v, dict):
+            yield from _walk_paths(v, path)
+        elif isinstance(v, list):
+            for i, item in enumerate(v):
+                yield from _walk_paths(item, f"{path}[{i}]")
+        elif v is not None:
+            yield path, v
+
+
+def ingest_all(config: dict[str, Any]) -> tuple[ExtractedFinancials, dict[str, str]]:
     """Run every ingester listed in the config, merge results, layer in the
-    inline `industry:` assumptions block, then return."""
+    inline `industry:` block.
+
+    Returns:
+        (merged_data, provenance) — provenance maps each populated dotted-path
+        to the source-string of the ingester (or "industry:inline") that
+        contributed it. Later contributors override earlier ones for the same
+        path, mirroring the merge order.
+    """
     out = ExtractedFinancials()
+    provenance: dict[str, str] = {}
     sources: list[str] = []
+
     for spec in config.get("ingesters", []):
         ingester = build_ingester(spec)
         partial = ingester.extract()
+        partial_source = partial.meta.source or spec["type"]
+        for path, _ in _walk_paths(partial):
+            provenance[path] = partial_source
         if partial.meta.source:
             sources.append(partial.meta.source)
         out = merge_into(out, partial)
 
-    # Inline industry assumptions — the analyst's per-company calibration.
     if "industry" in config:
         industry_partial = ExtractedFinancials()
         industry_partial.industry = IndustryBenchmarks(**config["industry"])
+        for path, _ in _walk_paths(industry_partial):
+            provenance[path] = "industry:inline"
         sources.append("industry:inline")
         out = merge_into(out, industry_partial)
 
@@ -105,4 +144,4 @@ def ingest_all(config: dict[str, Any]) -> ExtractedFinancials:
     if "meta" in config:
         for k, v in config["meta"].items():
             setattr(out.meta, k, v)
-    return out
+    return out, provenance

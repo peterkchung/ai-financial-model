@@ -4,7 +4,9 @@
 # merges their outputs, populates the template, and validates the workbook.
 
 from __future__ import annotations
+import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import click
@@ -20,6 +22,39 @@ def cli() -> None:
     """ai-financial-model: company filings → populated valuation model."""
 
 
+def _write_audit(
+    out_dir: Path,
+    *,
+    cfg: dict,
+    data: ExtractedFinancials,
+    provenance: dict[str, str],
+    pop_report: dict,
+    validation_summary: str,
+) -> Path:
+    """Write a per-run audit log to <out_dir>/audit.json."""
+    audit = {
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "company": data.meta.model_dump(),
+        "ingesters": [
+            {"type": spec["type"], "args": spec.get("args", {})}
+            for spec in cfg.get("ingesters", [])
+        ],
+        "industry_inline": "industry" in cfg,
+        "provenance": provenance,
+        "summary": {
+            "tagged_cells": pop_report["tagged_cells"],
+            "populated": pop_report["populated"],
+            "default_kept": pop_report["default_kept"],
+            "no_value_extracted": pop_report["skipped_missing"],
+        },
+        "cells": pop_report["cells"],
+        "validation": validation_summary,
+    }
+    path = out_dir / "audit.json"
+    path.write_text(json.dumps(audit, indent=2, default=str))
+    return path
+
+
 @cli.command("ingest-company")
 @click.option("--company", type=click.Path(exists=True, path_type=Path), required=True,
               help="Company config YAML listing every ingester to run.")
@@ -28,7 +63,7 @@ def cli() -> None:
 def ingest_company(company: Path, out: Path) -> None:
     """Stage 1: run every ingester in `company` config and merge results."""
     cfg = load_company_config(company)
-    data = ingest_all(cfg)
+    data, _ = ingest_all(cfg)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(data.model_dump_json(indent=2))
     click.echo(f"Merged from {len(cfg.get('ingesters', []))} ingester(s) → {out}")
@@ -66,26 +101,44 @@ def validate(workbook: Path, tolerance_pct: float, as_json: bool) -> None:
 @click.option("--template", type=click.Path(exists=True, path_type=Path), required=True)
 @click.option("--out-dir", type=click.Path(path_type=Path), required=True)
 def process_company(company: Path, template: Path, out_dir: Path) -> None:
-    """End-to-end: run every ingester in `company`, populate, validate."""
+    """End-to-end: run every ingester in `company`, populate, validate.
+
+    Writes three artifacts to <out_dir>:
+      - extracted.json   — merged ExtractedFinancials
+      - model.xlsx       — populated workbook
+      - audit.json       — per-cell provenance + run metadata
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
     extracted_path = out_dir / "extracted.json"
     out_path = out_dir / "model.xlsx"
 
     click.echo("[1/3] Orchestrating ingesters…")
     cfg = load_company_config(company)
-    data = ingest_all(cfg)
+    data, provenance = ingest_all(cfg)
     extracted_path.write_text(data.model_dump_json(indent=2))
     click.echo(f"  Sources: {data.meta.source}")
 
     click.echo("[2/3] Populating template…")
-    pop = populate_template(data, template, out_path)
-    click.echo(f"  {pop['populated']}/{pop['tagged_cells']} cells populated "
-               f"({pop['default_kept']} default kept, {pop['skipped_missing']} empty)")
+    pop_report = populate_template(data, template, out_path, provenance=provenance)
+    click.echo(f"  {pop_report['populated']}/{pop_report['tagged_cells']} cells populated "
+               f"({pop_report['default_kept']} default kept, "
+               f"{pop_report['skipped_missing']} empty)")
 
     click.echo("[3/3] Validating…")
     report = validate_workbook(out_path)
     click.echo(report.summary())
-    click.echo(f"\nOutputs:\n  {extracted_path}\n  {out_path}")
+
+    audit_path = _write_audit(
+        out_dir,
+        cfg=cfg, data=data, provenance=provenance,
+        pop_report=pop_report,
+        validation_summary=report.summary(),
+    )
+
+    click.echo(f"\nOutputs:")
+    click.echo(f"  {extracted_path}")
+    click.echo(f"  {out_path}")
+    click.echo(f"  {audit_path}")
     if report.overall.value == "red":
         sys.exit(1)
 

@@ -67,6 +67,7 @@ make seed-data
 make process-company COMPANY=amzn
 # → output/amzn/extracted.json   (merged data from all ingesters)
 # → output/amzn/model.xlsx       (populated valuation workbook — open in Excel)
+# → output/amzn/audit.json       (per-cell provenance: which source → which cell)
 # → green/yellow/red validation report
 
 # Or in one shot:
@@ -127,6 +128,39 @@ ingesters:
 ```
 
 **Industry assumptions inline; macro shared.** The split reflects real usage — every analyst will tune β and target margin per company, but rf, FX, and credit spreads are the same across all companies in the same currency / regime, so they live in one shared `data/macro_inputs/<key>.yaml`.
+
+## Per-run provenance (audit.json)
+
+Every `make process-company` writes an `audit.json` next to the workbook. This is the answer to *"what data was used and where for this company's model?"* — the per-company mapping, not a static system-level doc:
+
+```jsonc
+{
+  "generated_at": "2026-04-30T18:24:23Z",
+  "company": {"ticker": "AMZN", "company_name": "Amazon.com, Inc.", "valuation_date": "2025-12-31", ...},
+  "ingesters": [{"type": "sec_xbrl", "args": {...}}, {"type": "macro", ...}, ...],
+  "industry_inline": true,
+  "provenance": {
+    "pl.net_sales.fy_latest": "sec-fsds:2026q1:0001018724-26-000004",
+    "macro.risk_free_rate": "macro:us_default.yaml",
+    "industry.levered_beta": "industry:inline",
+    ...
+  },
+  "cells": [
+    {
+      "sheet": "Historicals", "cell": "D2",
+      "schema_field": "pl.net_sales.fy_latest",
+      "value": 716924.0,
+      "source": "sec-fsds:2026q1:0001018724-26-000004",
+      "status": "populated"
+    },
+    ...
+  ],
+  "summary": {"tagged_cells": 110, "populated": 94, "default_kept": 0, "no_value_extracted": 16},
+  "validation": "Overall: GREEN ..."
+}
+```
+
+Use it to answer: which ingester contributed which value? Which cells were left empty and why? What changed between two runs (`diff` two `audit.json` files)?
 
 ## Pipeline architecture
 
