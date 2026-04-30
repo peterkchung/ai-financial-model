@@ -83,10 +83,11 @@ def test_populate_amazon(out_path: Path):
     data = amazon_fy2025_fixture()
     report = populate_template(data, TEMPLATE, out_path)
 
-    # Every tagged cell should either be populated or recorded as missing.
+    # Every tagged cell is in one of three buckets: populated, default-kept, or empty.
     assert report["tagged_cells"] > 0
-    assert report["populated"] + report["skipped_missing"] == report["tagged_cells"]
-    # We populated most fields except market price; expect populated >> missing.
+    assert (report["populated"] + report["default_kept"] + report["skipped_missing"]
+            == report["tagged_cells"])
+    # We populate most fields from the fixture; expect populated to dominate.
     assert report["populated"] >= report["skipped_missing"]
 
 

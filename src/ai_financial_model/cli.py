@@ -57,9 +57,10 @@ def generate(extracted: Path, template: Path, out: Path) -> None:
     data = ExtractedFinancials.model_validate_json(extracted.read_text())
     report = populate_template(data, template, out)
     click.echo(f"Populated → {out}")
-    click.echo(f"  Tagged cells:     {report['tagged_cells']}")
-    click.echo(f"  Populated:        {report['populated']}")
-    click.echo(f"  Empty (no value): {report['skipped_missing']}")
+    click.echo(f"  Tagged cells:      {report['tagged_cells']}")
+    click.echo(f"  Populated:         {report['populated']}")
+    click.echo(f"  Default kept:      {report['default_kept']}")
+    click.echo(f"  Empty (no value):  {report['skipped_missing']}")
 
 
 @cli.command()
@@ -93,7 +94,7 @@ def process_deal(deal: Path, template: Path, out_dir: Path) -> None:
     click.echo("[2/3] Populating template…")
     pop = populate_template(data, template, out_path)
     click.echo(f"  {pop['populated']}/{pop['tagged_cells']} cells populated "
-               f"({pop['skipped_missing']} empty)")
+               f"({pop['default_kept']} default kept, {pop['skipped_missing']} empty)")
 
     click.echo("[3/3] Validating…")
     report = validate_workbook(out_path)

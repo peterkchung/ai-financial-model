@@ -57,6 +57,7 @@ def populate_template(
     wb = load_workbook(output_path)
     populated = 0
     skipped_missing = 0
+    default_kept = 0
     seen = 0
 
     for ws in wb.worksheets:
@@ -71,11 +72,22 @@ def populate_template(
                 path = m.group(1)
                 value = _resolve(extracted, path)
                 if value is None:
-                    skipped_missing += 1
-                    cell.comment = Comment(
-                        f"Pipeline field: {path}\nReason: NO_VALUE_EXTRACTED",
-                        "pipeline",
-                    )
+                    # Cell already has a default → preserve it (the template
+                    # sometimes ships defaults for tunable inputs the analyst
+                    # may want even without a live data source). Truly empty
+                    # cells get the NO_VALUE_EXTRACTED reason code.
+                    if cell.value is None:
+                        skipped_missing += 1
+                        cell.comment = Comment(
+                            f"Pipeline field: {path}\nReason: NO_VALUE_EXTRACTED",
+                            "pipeline",
+                        )
+                    else:
+                        default_kept += 1
+                        cell.comment = Comment(
+                            f"Pipeline field: {path}\nNo extraction; template default retained.",
+                            "pipeline",
+                        )
                     continue
                 cell.value = value
                 cell.comment = Comment(
@@ -85,4 +97,9 @@ def populate_template(
                 populated += 1
 
     wb.save(output_path)
-    return {"tagged_cells": seen, "populated": populated, "skipped_missing": skipped_missing}
+    return {
+        "tagged_cells": seen,
+        "populated": populated,
+        "default_kept": default_kept,
+        "skipped_missing": skipped_missing,
+    }
