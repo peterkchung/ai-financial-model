@@ -1,4 +1,4 @@
-# About: Pipeline orchestrator. Reads a deal-config YAML, runs each configured
+# About: Pipeline orchestrator. Reads a company-config YAML, runs each configured
 # ingester in order, deep-merges the resulting ExtractedFinancials, then hands
 # the merged data off to the populator and validator.
 #
@@ -23,7 +23,7 @@ from ai_financial_model.ingestion.earnings_release import EarningsReleaseIngeste
 from ai_financial_model.ingestion.form4 import Form4Ingester
 
 
-# Registry of ingester types referenced from deal configs by short name.
+# Registry of ingester types referenced from company configs by short name.
 INGESTER_REGISTRY: dict[str, type] = {
     "industry": IndustryBenchmarksIngester,
     "macro": MacroInputsIngester,
@@ -35,14 +35,14 @@ INGESTER_REGISTRY: dict[str, type] = {
 }
 
 
-def load_deal_config(path: Path) -> dict[str, Any]:
+def load_company_config(path: Path) -> dict[str, Any]:
     return yaml.safe_load(Path(path).read_text())
 
 
 def build_ingester(spec: dict[str, Any]) -> Ingester:
     """A spec is `{type: <name>, args: {...}}`. The args dict is passed as
     kwargs to the ingester constructor; Path values are resolved relative to
-    the deal config so configs stay portable."""
+    the company config so configs stay portable."""
     type_name = spec["type"]
     if type_name not in INGESTER_REGISTRY:
         raise ValueError(

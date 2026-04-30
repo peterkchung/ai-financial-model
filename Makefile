@@ -2,26 +2,26 @@
 # Most targets dispatch to `uv run aifm ...`; the underlying CLI lives in
 # src/ai_financial_model/cli.py.
 
-DEAL ?= amzn
-DEAL_CONFIG ?= config/deals/$(DEAL).yaml
+COMPANY ?= amzn
+COMPANY_CONFIG ?= config/companies/$(COMPANY).yaml
 TEMPLATE ?= templates/valuation_template.xlsx
-OUT_DIR ?= output/$(DEAL)
+OUT_DIR ?= output/$(COMPANY)
 OUT ?= $(OUT_DIR)/model.xlsx
 EXTRACTED ?= $(OUT_DIR)/extracted.json
 
-# Single-source variant (legacy path; prefer process-deal)
+# Single-source variant (legacy path; prefer process-company)
 SOURCE ?= data/reference/amazon_10k_fy2025.htm
 
 .PHONY: help install template refresh-macro refresh-industry \
-        ingest-deal generate validate process-deal \
+        ingest-company generate validate process-company \
         ingest process clean test
 
 help:
 	@echo "Pipeline targets:"
 	@echo "  install            — uv sync (with dev extras)"
 	@echo "  template           — regenerate templates/valuation_template.xlsx"
-	@echo "  process-deal       — orchestrated pipeline: ingest every source in DEAL_CONFIG → populate → validate"
-	@echo "  ingest-deal        — only the orchestrated ingestion step"
+	@echo "  process-company    — orchestrated pipeline: ingest every source in COMPANY_CONFIG → populate → validate"
+	@echo "  ingest-company     — only the orchestrated ingestion step"
 	@echo "  generate           — only populate the template (using \$$EXTRACTED)"
 	@echo "  validate           — only run validation on \$$OUT"
 	@echo ""
@@ -37,7 +37,7 @@ help:
 	@echo "Other:"
 	@echo "  test, clean"
 	@echo ""
-	@echo "Variables: DEAL=$(DEAL) DEAL_CONFIG=$(DEAL_CONFIG) TEMPLATE=$(TEMPLATE)"
+	@echo "Variables: COMPANY=$(COMPANY) COMPANY_CONFIG=$(COMPANY_CONFIG) TEMPLATE=$(TEMPLATE)"
 
 install:
 	uv sync --extra dev
@@ -49,8 +49,8 @@ $(OUT_DIR):
 	mkdir -p $(OUT_DIR)
 
 # Orchestrated pipeline (preferred)
-ingest-deal: $(OUT_DIR)
-	uv run aifm ingest-deal --deal $(DEAL_CONFIG) --out $(EXTRACTED)
+ingest-company: $(OUT_DIR)
+	uv run aifm ingest-company --company $(COMPANY_CONFIG) --out $(EXTRACTED)
 
 generate: $(OUT_DIR)
 	uv run aifm generate --extracted $(EXTRACTED) --template $(TEMPLATE) --out $(OUT)
@@ -58,8 +58,8 @@ generate: $(OUT_DIR)
 validate:
 	uv run aifm validate --workbook $(OUT)
 
-process-deal: $(OUT_DIR)
-	uv run aifm process-deal --deal $(DEAL_CONFIG) --template $(TEMPLATE) --out-dir $(OUT_DIR)
+process-company: $(OUT_DIR)
+	uv run aifm process-company --company $(COMPANY_CONFIG) --template $(TEMPLATE) --out-dir $(OUT_DIR)
 
 # Reference-data refresh (run when you want fresh inputs)
 refresh-macro:
@@ -77,7 +77,7 @@ ingest: $(OUT_DIR)
 process: ingest generate validate
 
 clean:
-	rm -rf output/$(DEAL)
+	rm -rf output/$(COMPANY)
 
 test:
 	uv run pytest

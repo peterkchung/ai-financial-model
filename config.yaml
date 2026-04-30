@@ -13,7 +13,7 @@ paths:
   templates: ./templates
 
 pipeline:
-  # Wall-clock budget for the full pipeline on a single deal (seconds).
+  # Wall-clock budget for the full pipeline on a single company (seconds).
   max_runtime_seconds: 300
   # Confidence score floor; cells below this are left empty with a reason code.
   min_confidence: 0.6

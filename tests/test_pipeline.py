@@ -1,4 +1,4 @@
-# About: Smoke-test the orchestrator. Runs the AMZN deal config end-to-end
+# About: Smoke-test the orchestrator. Runs the AMZN company config end-to-end
 # and asserts the populated workbook validates GREEN (mechanical ties hold).
 # Doubles as the integration-level eval harness flagged in PRD §13.
 
@@ -6,14 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from ai_financial_model.pipeline import load_deal_config, ingest_all
+from ai_financial_model.pipeline import load_company_config, ingest_all
 from ai_financial_model.generation import populate_template
 from ai_financial_model.validation import validate_workbook, Severity
 
 
 REPO = Path(__file__).resolve().parents[1]
 TEMPLATE = REPO / "templates" / "valuation_template.xlsx"
-DEAL = REPO / "config" / "deals" / "amzn.yaml"
+COMPANY = REPO / "config" / "companies" / "amzn.yaml"
 FSDS = REPO / "data" / "sec" / "financial_statement_data_sets" / "2026q1"
 INDUSTRY = REPO / "data" / "industry" / "retail_general.yaml"
 MACRO = REPO / "data" / "macro_inputs" / "us_default.yaml"
@@ -27,7 +27,7 @@ needs_data = pytest.mark.skipif(
 
 @needs_data
 def test_orchestrator_amzn_extracts_core_financials():
-    cfg = load_deal_config(DEAL)
+    cfg = load_company_config(COMPANY)
     data = ingest_all(cfg)
 
     assert data.meta.cik == 1018724
@@ -50,7 +50,7 @@ def test_orchestrator_amzn_extracts_core_financials():
 
 @needs_data
 def test_orchestrator_to_validated_workbook(tmp_path: Path):
-    cfg = load_deal_config(DEAL)
+    cfg = load_company_config(COMPANY)
     data = ingest_all(cfg)
     out = tmp_path / "model.xlsx"
     populate_template(data, TEMPLATE, out)

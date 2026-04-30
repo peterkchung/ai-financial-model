@@ -14,8 +14,8 @@ ai-financial-model/
 ├── Makefile
 ├── pyproject.toml
 ├── config.yaml                       # global config (currently used for tolerances)
-├── config/deals/
-│   └── amzn.yaml                     # deal config: which ingesters to run for Amazon
+├── config/companies/
+│   └── amzn.yaml                     # company config: which ingesters to run for Amazon
 ├── scripts/
 │   ├── build_template.py             # regenerate the blank template
 │   ├── refresh_macro_fred.py         # FRED → data/macro_inputs/<key>.yaml (vendor adapter)
@@ -24,8 +24,8 @@ ai-financial-model/
 │   └── valuation_template.xlsx       # 7-sheet two-stage FCFF DCF skeleton
 ├── src/ai_financial_model/
 │   ├── schema.py                     # ExtractedFinancials (Pydantic)
-│   ├── pipeline.py                   # orchestrator: deal config → merged ExtractedFinancials
-│   ├── cli.py                        # `aifm process-deal | ingest | generate | validate`
+│   ├── pipeline.py                   # orchestrator: company config → merged ExtractedFinancials
+│   ├── cli.py                        # `aifm process-company | ingest | generate | validate`
 │   ├── ingestion/
 │   │   ├── base.py                   # Ingester ABC
 │   │   ├── sec_xbrl.py               # SEC FSDS XBRL → company financials
@@ -66,7 +66,7 @@ Requires Python 3.11+ and [`uv`](https://docs.astral.sh/uv/).
 Three stages, each with a clear contract:
 
 ```
-deal config (YAML) ──orchestrator──▶ ExtractedFinancials (merged)
+company config (YAML) ──orchestrator──▶ ExtractedFinancials (merged)
                                          │
                                          ├──populator──▶ model.xlsx
                                          │                  │
@@ -75,7 +75,7 @@ deal config (YAML) ──orchestrator──▶ ExtractedFinancials (merged)
                                          (multiple ingesters, deep-merged)
 ```
 
-The deal config lists which ingesters to run with which arguments. The orchestrator runs them in order, deep-merges their partial `ExtractedFinancials` outputs, and hands the merged result to the populator.
+The company config lists which ingesters to run with which arguments. The orchestrator runs them in order, deep-merges their partial `ExtractedFinancials` outputs, and hands the merged result to the populator.
 
 ## Generalizable ingestion
 
@@ -107,28 +107,28 @@ make template
 make refresh-macro
 make refresh-industry
 
-# End-to-end pipeline against the Amazon deal config
-make process-deal DEAL=amzn
+# End-to-end pipeline against the Amazon company config
+make process-company COMPANY=amzn
 # → output/amzn/extracted.json
 # → output/amzn/model.xlsx
 # → green/yellow/red validation report
 
 # Or per stage
-make ingest-deal DEAL=amzn      # orchestrate ingesters
-make generate DEAL=amzn          # populate the template
-make validate DEAL=amzn          # run mechanical-tie checks
+make ingest-company COMPANY=amzn   # orchestrate ingesters
+make generate COMPANY=amzn         # populate the template
+make validate COMPANY=amzn         # run mechanical-tie checks
 
 # Tests
 make test
 ```
 
-## Adding a new deal
+## Adding a new company
 
 1. Drop source documents into `data/sec/<ticker>/` (filings) and `data/ir/<ticker>/` (IR collateral).
-2. Author `config/deals/<ticker>.yaml` listing which ingesters to run with which paths.
-3. `make process-deal DEAL=<ticker>`.
+2. Author `config/companies/<ticker>.yaml` listing which ingesters to run with which paths.
+3. `make process-company COMPANY=<ticker>`.
 
-A typical deal config:
+A typical company config:
 
 ```yaml
 meta:
@@ -162,5 +162,5 @@ Later ingesters override earlier ones for overlapping fields; lists (e.g. inside
 
 - **Replace SEC HTML stub with full extractor** for filings not yet in the FSDS bulk file.
 - **Confidence scoring** — every populated cell gets a green/yellow/red badge derived from extraction confidence + cross-source agreement.
-- **Peer ingestion config** — extend the deal config to pull a peer comp set in one orchestrator run.
+- **Peer ingestion config** — extend the company config to pull a peer comp set in one orchestrator run.
 - **Web/UI surface** — currently CLI-only.

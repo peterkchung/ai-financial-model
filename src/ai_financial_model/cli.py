@@ -1,6 +1,6 @@
 # About: CLI entry point. Subcommands map to pipeline stages
-# (ingest / generate / validate); `process-deal` is the orchestrator that
-# runs every ingester listed in a deal-config YAML, merges, populates, validates.
+# (ingest / generate / validate); `process-company` is the orchestrator that
+# runs every ingester listed in a company-config YAML, merges, populates, validates.
 
 from __future__ import annotations
 import sys
@@ -12,12 +12,12 @@ from ai_financial_model.ingestion.base import detect_ingester
 from ai_financial_model.generation import populate_template
 from ai_financial_model.validation import validate_workbook
 from ai_financial_model.schema import ExtractedFinancials
-from ai_financial_model.pipeline import load_deal_config, ingest_all
+from ai_financial_model.pipeline import load_company_config, ingest_all
 
 
 @click.group()
 def cli() -> None:
-    """ai-financial-model: data room → populated valuation model."""
+    """ai-financial-model: company filings → populated valuation model."""
 
 
 @cli.command()
@@ -34,14 +34,14 @@ def ingest(source: Path, out: Path) -> None:
     click.echo(f"Extracted → {out}")
 
 
-@cli.command("ingest-deal")
-@click.option("--deal", type=click.Path(exists=True, path_type=Path), required=True,
-              help="Deal config YAML listing every ingester to run.")
+@cli.command("ingest-company")
+@click.option("--company", type=click.Path(exists=True, path_type=Path), required=True,
+              help="Company config YAML listing every ingester to run.")
 @click.option("--out", type=click.Path(path_type=Path), required=True,
               help="Where to write the merged ExtractedFinancials JSON.")
-def ingest_deal(deal: Path, out: Path) -> None:
-    """Stage 1 (multi-source): run every ingester in `deal` and merge results."""
-    cfg = load_deal_config(deal)
+def ingest_company(company: Path, out: Path) -> None:
+    """Stage 1 (multi-source): run every ingester in `company` and merge results."""
+    cfg = load_company_config(company)
     data = ingest_all(cfg)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(data.model_dump_json(indent=2))
@@ -75,18 +75,18 @@ def validate(workbook: Path, tolerance_pct: float, as_json: bool) -> None:
         sys.exit(1)
 
 
-@cli.command("process-deal")
-@click.option("--deal", type=click.Path(exists=True, path_type=Path), required=True)
+@cli.command("process-company")
+@click.option("--company", type=click.Path(exists=True, path_type=Path), required=True)
 @click.option("--template", type=click.Path(exists=True, path_type=Path), required=True)
 @click.option("--out-dir", type=click.Path(path_type=Path), required=True)
-def process_deal(deal: Path, template: Path, out_dir: Path) -> None:
-    """End-to-end: run every ingester in `deal`, populate, validate."""
+def process_company(company: Path, template: Path, out_dir: Path) -> None:
+    """End-to-end: run every ingester in `company`, populate, validate."""
     out_dir.mkdir(parents=True, exist_ok=True)
     extracted_path = out_dir / "extracted.json"
     out_path = out_dir / "model.xlsx"
 
     click.echo("[1/3] Orchestrating ingesters…")
-    cfg = load_deal_config(deal)
+    cfg = load_company_config(company)
     data = ingest_all(cfg)
     extracted_path.write_text(data.model_dump_json(indent=2))
     click.echo(f"  Sources: {data.meta.source}")

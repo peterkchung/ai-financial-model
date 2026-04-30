@@ -1,7 +1,7 @@
 # About: Internal-consistency checks for a populated workbook. Pulls historical
 # line items off the Historicals sheet and verifies mechanical ties (total opex,
 # operating income, income before tax). Cross-source reconciliation is deferred
-# until the pipeline ingests more than one source per deal (PRD §6.5).
+# until the pipeline ingests more than one source per company.
 
 from __future__ import annotations
 from pathlib import Path
