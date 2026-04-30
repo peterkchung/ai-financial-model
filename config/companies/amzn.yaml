@@ -1,4 +1,4 @@
-# About: Deal config for Amazon — orchestrates the pipeline. Each ingester
+# About: Company config for Amazon — orchestrates the pipeline. Each ingester
 # produces a partial ExtractedFinancials; later entries override earlier ones
 # for overlapping fields, and lists concatenate. Edit the meta block and the
 # ingester args, not the schema.
@@ -19,7 +19,7 @@ ingesters:
   # Forward guidance from the most recent earnings release
   - type: earnings_release
     args:
-      html_path: data/ir/amzn/q1_2026_press_release.htm
+      html_path: data/ir/amzn/latest_press_release.htm
 
   # Insider activity (recent Form 4s)
   - type: form4

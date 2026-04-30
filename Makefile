@@ -12,13 +12,17 @@ EXTRACTED ?= $(OUT_DIR)/extracted.json
 # Single-source variant (legacy path; prefer process-company)
 SOURCE ?= data/reference/amazon_10k_fy2025.htm
 
-.PHONY: help install template refresh-macro refresh-industry \
+.PHONY: help install seed-data template refresh-macro refresh-industry \
         ingest-company generate validate process-company \
-        ingest process clean test
+        ingest process clean test demo
 
 help:
-	@echo "Pipeline targets:"
+	@echo "First-time setup:"
 	@echo "  install            — uv sync (with dev extras)"
+	@echo "  seed-data          — download SEC, FRED, NYU Stern data needed for the AMZN demo"
+	@echo "  demo               — install + seed-data + process-company COMPANY=amzn (one shot)"
+	@echo ""
+	@echo "Pipeline targets:"
 	@echo "  template           — regenerate templates/valuation_template.xlsx"
 	@echo "  process-company    — orchestrated pipeline: ingest every source in COMPANY_CONFIG → populate → validate"
 	@echo "  ingest-company     — only the orchestrated ingestion step"
@@ -41,6 +45,12 @@ help:
 
 install:
 	uv sync --extra dev
+
+seed-data:
+	uv run python scripts/seed_data.py
+
+demo: install seed-data
+	$(MAKE) process-company COMPANY=amzn
 
 template:
 	uv run python scripts/build_template.py

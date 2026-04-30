@@ -53,13 +53,46 @@ ai-financial-model/
     └── reference/                    # corpus seed (10-K used for early dev)
 ```
 
-## Installation
+## Quick start (fresh clone)
 
 ```bash
-uv sync --extra dev
+# 1. Prerequisites: Python 3.11+ and uv (https://docs.astral.sh/uv/)
+git clone https://github.com/peterkchung/ai-financial-model
+cd ai-financial-model
+
+# 2. Install dependencies
+make install
+
+# 3. Bootstrap the data corpus (~80 MB download, ~640 MB unpacked)
+#    Pulls SEC EDGAR filings, FRED CSVs, NYU Stern industry datasets.
+#    Idempotent: re-running skips files that already exist.
+make seed-data
+
+# 4. Run the end-to-end pipeline against Amazon
+make process-company COMPANY=amzn
+# → output/amzn/extracted.json   (merged data from all ingesters)
+# → output/amzn/model.xlsx       (populated valuation workbook — open in Excel)
+# → green/yellow/red validation report
+
+# Or in one shot:
+make demo                     # = install + seed-data + process-company COMPANY=amzn
 ```
 
-Requires Python 3.11+ and [`uv`](https://docs.astral.sh/uv/).
+The `output/amzn/model.xlsx` is the analyst-facing deliverable — a 7-sheet FCFF DCF with cell-level provenance comments.
+
+## What `make seed-data` downloads
+
+| Source | Where it lands | Size | Purpose |
+|---|---|---|---|
+| SEC Financial Statement Data Sets (2026q1 zip) | `data/sec/financial_statement_data_sets/2026q1/` | ~640 MB unpacked | All-registrant XBRL facts; the pipeline's primary financials feed |
+| AMZN Form 4 filings (latest 5) | `data/sec/amzn/` | ~25 KB | Insider transactions |
+| AMZN earnings press release (latest 8-K Ex 99.1) | `data/ir/amzn/latest_press_release.htm` | ~600 KB | Forward guidance |
+| FRED macro CSVs (DGS10, DGS30, DBAA, DEXUSEU, CPIAUCSL, GDPC1) | `data/macro/fred/*.csv` | ~800 KB | Inputs for `refresh-macro` |
+| NYU Stern industry datasets (totalbeta, margin, roc, wacc, histimpl) | `data/macro/damodaran/*.xls` | ~400 KB | Inputs for `refresh-industry` |
+
+The pipeline-canonical yamls (`data/macro_inputs/us_default.yaml`, `data/industry/retail_general.yaml`) ship in the repo — `seed-data` only pulls the upstream raw vendor files needed to regenerate them. Run `make refresh-macro` / `make refresh-industry` when you want fresh values.
+
+> **SEC Note:** EDGAR requires a User-Agent header identifying the requester. The seed script defaults to `ai-financial-model-research aifm-bootstrap@example.com`. Override via `SEC_UA="Your Org admin@yourorg.com" make seed-data`.
 
 ## Pipeline architecture
 
@@ -96,30 +129,22 @@ Two examples live in the codebase:
 
 Swap to a different vendor (Bloomberg, FactSet, internal feed) by writing a new `scripts/refresh_<type>_<vendor>.py` that emits the same yaml format. The pipeline is unchanged.
 
-## Quick start
+## Day-to-day commands
 
 ```bash
-# Install + build the blank template
-make install
-make template
-
-# Refresh reference data (run periodically; outputs are gitignored)
-make refresh-macro
-make refresh-industry
-
-# End-to-end pipeline against the Amazon company config
-make process-company COMPANY=amzn
-# → output/amzn/extracted.json
-# → output/amzn/model.xlsx
-# → green/yellow/red validation report
-
-# Or per stage
-make ingest-company COMPANY=amzn   # orchestrate ingesters
-make generate COMPANY=amzn         # populate the template
+# Stage-by-stage (after seed-data):
+make ingest-company COMPANY=amzn   # orchestrate ingesters → extracted.json
+make generate COMPANY=amzn         # populate the template → model.xlsx
 make validate COMPANY=amzn         # run mechanical-tie checks
 
-# Tests
-make test
+# Refresh reference data (rerun whenever you want fresher inputs):
+make refresh-macro                  # FRED CSVs → data/macro_inputs/us_default.yaml
+make refresh-industry               # Damodaran .xls → data/industry/retail_general.yaml
+
+# Other:
+make template                       # regenerate templates/valuation_template.xlsx
+make test                           # pytest
+make help                           # show every target
 ```
 
 ## Adding a new company
