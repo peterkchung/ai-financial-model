@@ -13,10 +13,10 @@ ai-financial-model/
 ├── README.md
 ├── Makefile
 ├── pyproject.toml
-├── config.yaml                       # global config (currently used for tolerances)
 ├── config/companies/
 │   └── amzn.yaml                     # company config: which ingesters to run for Amazon
 ├── scripts/
+│   ├── seed_data.py                  # one-shot bootstrap: SEC, FRED, NYU Stern downloads
 │   ├── build_template.py             # regenerate the blank template
 │   ├── refresh_macro_fred.py         # FRED → data/macro_inputs/<key>.yaml (vendor adapter)
 │   └── refresh_industry_damodaran.py # NYU Stern → data/industry/<key>.yaml (vendor adapter)
@@ -25,12 +25,11 @@ ai-financial-model/
 ├── src/ai_financial_model/
 │   ├── schema.py                     # ExtractedFinancials (Pydantic)
 │   ├── pipeline.py                   # orchestrator: company config → merged ExtractedFinancials
-│   ├── cli.py                        # `aifm process-company | ingest | generate | validate`
+│   ├── cli.py                        # `aifm process-company | ingest-company | generate | validate`
 │   ├── ingestion/
 │   │   ├── base.py                   # Ingester ABC
 │   │   ├── sec_xbrl.py               # SEC FSDS XBRL → company financials
 │   │   ├── sec_10q.py                # 10-Q wrapper around sec_xbrl
-│   │   ├── sec_10k.py                # 10-K HTML stub
 │   │   ├── earnings_release.py       # 8-K Ex 99.1 → forward guidance
 │   │   ├── form4.py                  # Form 4 XML → insider transactions
 │   │   ├── industry.py               # generic IndustryBenchmarks loader (YAML/CSV)
@@ -44,13 +43,12 @@ ai-financial-model/
 │   ├── test_populator.py             # generation + validation
 │   └── test_pipeline.py              # orchestrator end-to-end
 └── data/
-    ├── sec/                          # 10-K, 10-Q, 8-K, DEF 14A, Form 4, FSDS bulk
-    ├── ir/                           # press releases, CFO commentary
-    ├── macro/                        # raw vendor data (FRED CSVs, Damodaran .xls)
-    ├── macro_inputs/                 # canonical generic-format yaml the pipeline reads
-    ├── industry/                     # canonical generic-format yaml the pipeline reads
-    ├── litigation/                   # docket notes
-    └── reference/                    # corpus seed (10-K used for early dev)
+    ├── sec/                          # 10-K, 10-Q, 8-K, DEF 14A, Form 4, FSDS bulk (gitignored)
+    ├── ir/                           # press releases, CFO commentary (gitignored)
+    ├── macro/                        # raw vendor data — FRED CSVs, Damodaran .xls (gitignored)
+    ├── macro_inputs/                 # canonical generic-format yaml the pipeline reads (committed)
+    ├── industry/                     # canonical generic-format yaml the pipeline reads (committed)
+    └── litigation/                   # docket notes (committed)
 ```
 
 ## Quick start (fresh clone)

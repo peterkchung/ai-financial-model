@@ -27,8 +27,6 @@ data/ir/**/*.htm
 data/macro/fred/*.csv
 data/macro/damodaran/*.xls
 data/macro/damodaran/*.xlsx
-data/reference/*.htm
-data/reference/*.xlsx
 
 # IDE
 .vscode/

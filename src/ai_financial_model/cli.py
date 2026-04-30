@@ -1,6 +1,7 @@
 # About: CLI entry point. Subcommands map to pipeline stages
-# (ingest / generate / validate); `process-company` is the orchestrator that
-# runs every ingester listed in a company-config YAML, merges, populates, validates.
+# (ingest-company / generate / validate); `process-company` is the end-to-end
+# orchestrator that runs every ingester listed in a company-config YAML,
+# merges their outputs, populates the template, and validates the workbook.
 
 from __future__ import annotations
 import sys
@@ -8,7 +9,6 @@ from pathlib import Path
 
 import click
 
-from ai_financial_model.ingestion.base import detect_ingester
 from ai_financial_model.generation import populate_template
 from ai_financial_model.validation import validate_workbook
 from ai_financial_model.schema import ExtractedFinancials
@@ -20,27 +20,13 @@ def cli() -> None:
     """ai-financial-model: company filings → populated valuation model."""
 
 
-@cli.command()
-@click.option("--source", "source", type=click.Path(exists=True, path_type=Path), required=True,
-              help="Path to a single source document (10-K HTML, PDF, etc.).")
-@click.option("--out", "out", type=click.Path(path_type=Path), required=True,
-              help="Where to write the extracted JSON.")
-def ingest(source: Path, out: Path) -> None:
-    """Stage 1 (single-source): parse one document into ExtractedFinancials JSON."""
-    ingester = detect_ingester(source)
-    extracted = ingester.extract(source)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(extracted.model_dump_json(indent=2))
-    click.echo(f"Extracted → {out}")
-
-
 @cli.command("ingest-company")
 @click.option("--company", type=click.Path(exists=True, path_type=Path), required=True,
               help="Company config YAML listing every ingester to run.")
 @click.option("--out", type=click.Path(path_type=Path), required=True,
               help="Where to write the merged ExtractedFinancials JSON.")
 def ingest_company(company: Path, out: Path) -> None:
-    """Stage 1 (multi-source): run every ingester in `company` and merge results."""
+    """Stage 1: run every ingester in `company` config and merge results."""
     cfg = load_company_config(company)
     data = ingest_all(cfg)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -100,30 +86,6 @@ def process_company(company: Path, template: Path, out_dir: Path) -> None:
     report = validate_workbook(out_path)
     click.echo(report.summary())
     click.echo(f"\nOutputs:\n  {extracted_path}\n  {out_path}")
-    if report.overall.value == "red":
-        sys.exit(1)
-
-
-@cli.command()
-@click.option("--source", type=click.Path(exists=True, path_type=Path), required=True)
-@click.option("--template", type=click.Path(exists=True, path_type=Path), required=True)
-@click.option("--out-dir", type=click.Path(path_type=Path), required=True)
-def process(source: Path, template: Path, out_dir: Path) -> None:
-    """Single-source process: ingest one document, populate, validate."""
-    out_dir.mkdir(parents=True, exist_ok=True)
-    extracted_path = out_dir / "extracted.json"
-    out_path = out_dir / "model.xlsx"
-
-    click.echo("[1/3] Ingesting…")
-    data = detect_ingester(source).extract(source)
-    extracted_path.write_text(data.model_dump_json(indent=2))
-
-    click.echo("[2/3] Generating…")
-    populate_template(data, template, out_path)
-
-    click.echo("[3/3] Validating…")
-    report = validate_workbook(out_path)
-    click.echo(report.summary())
     if report.overall.value == "red":
         sys.exit(1)
 

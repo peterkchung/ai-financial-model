@@ -13,7 +13,7 @@ from ai_financial_model.validation.report import (
     Finding, Severity, ValidationReport,
 )
 
-# Default tolerance for mechanical ties; override per-KPI in config.yaml later.
+# Default tolerance for mechanical ties (variance %).
 DEFAULT_TOLERANCE_PCT = 0.5
 
 

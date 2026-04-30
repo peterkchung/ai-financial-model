@@ -18,7 +18,6 @@ from ai_financial_model.ingestion.industry import IndustryBenchmarksIngester
 from ai_financial_model.ingestion.macro import MacroInputsIngester
 from ai_financial_model.ingestion.sec_xbrl import SECXBRLIngester
 from ai_financial_model.ingestion.sec_10q import SEC10QIngester
-from ai_financial_model.ingestion.sec_10k import SEC10KIngester
 from ai_financial_model.ingestion.earnings_release import EarningsReleaseIngester
 from ai_financial_model.ingestion.form4 import Form4Ingester
 
@@ -29,7 +28,6 @@ INGESTER_REGISTRY: dict[str, type] = {
     "macro": MacroInputsIngester,
     "sec_xbrl": SECXBRLIngester,
     "sec_10q": SEC10QIngester,
-    "sec_10k": SEC10KIngester,
     "earnings_release": EarningsReleaseIngester,
     "form4": Form4Ingester,
 }
