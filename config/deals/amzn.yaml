@@ -1,0 +1,37 @@
+# About: Deal config for Amazon — orchestrates the pipeline. Each ingester
+# produces a partial ExtractedFinancials; later entries override earlier ones
+# for overlapping fields, and lists concatenate. Edit the meta block and the
+# ingester args, not the schema.
+
+meta:
+  ticker: AMZN
+  company_name: Amazon.com, Inc.
+  valuation_date: "2025-12-31"
+
+ingesters:
+  # Company financials — structured XBRL beats HTML scraping
+  - type: sec_xbrl
+    args:
+      fsds_dir: data/sec/financial_statement_data_sets/2026q1
+      cik: 1018724
+      form: 10-K
+
+  # Forward guidance from the most recent earnings release
+  - type: earnings_release
+    args:
+      html_path: data/ir/amzn/q1_2026_press_release.htm
+
+  # Insider activity (recent Form 4s)
+  - type: form4
+    args:
+      form4_dir: data/sec/amzn
+
+  # Macro inputs (rf, credit spread, FX) — refreshed via scripts/refresh_macro_fred.py
+  - type: macro
+    args:
+      path: data/macro_inputs/us_default.yaml
+
+  # Industry priors (β, ERP, margin, ROIC) — refreshed via scripts/refresh_industry_*.py
+  - type: industry
+    args:
+      path: data/industry/retail_general.yaml
