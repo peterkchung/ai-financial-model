@@ -1,10 +1,13 @@
 # About: Pipeline orchestrator. Reads a company-config YAML, runs each configured
-# ingester in order, deep-merges the resulting ExtractedFinancials, then hands
-# the merged data off to the populator and validator.
+# ingester in order, deep-merges the resulting ExtractedFinancials, layers in
+# the inline analyst assumptions block, then hands the merged data off to the
+# populator and validator.
 #
 # Each ingester contributes a *partial* ExtractedFinancials populated with
 # whatever fields it knows about. Later ingesters override earlier ones for
 # overlapping fields (config order = precedence). Lists are concatenated.
+# The top-level `industry:` block in the company config wins last — those
+# values are the analyst's deliberate calibration.
 
 from __future__ import annotations
 from pathlib import Path
@@ -12,9 +15,8 @@ from typing import Any
 
 import yaml
 
-from ai_financial_model.schema import ExtractedFinancials
+from ai_financial_model.schema import ExtractedFinancials, IndustryBenchmarks
 from ai_financial_model.ingestion.base import Ingester
-from ai_financial_model.ingestion.industry import IndustryBenchmarksIngester
 from ai_financial_model.ingestion.macro import MacroInputsIngester
 from ai_financial_model.ingestion.sec_xbrl import SECXBRLIngester
 from ai_financial_model.ingestion.sec_10q import SEC10QIngester
@@ -24,7 +26,6 @@ from ai_financial_model.ingestion.form4 import Form4Ingester
 
 # Registry of ingester types referenced from company configs by short name.
 INGESTER_REGISTRY: dict[str, type] = {
-    "industry": IndustryBenchmarksIngester,
     "macro": MacroInputsIngester,
     "sec_xbrl": SECXBRLIngester,
     "sec_10q": SEC10QIngester,
@@ -48,10 +49,10 @@ def build_ingester(spec: dict[str, Any]) -> Ingester:
             f"Registered: {sorted(INGESTER_REGISTRY)}")
     cls = INGESTER_REGISTRY[type_name]
     args = dict(spec.get("args", {}))
-    # Coerce path-like args
     for k, v in list(args.items()):
         if isinstance(v, str) and (
-            v.startswith("data/") or v.startswith("./") or v.endswith((".yaml", ".yml", ".csv", ".xlsx", ".htm", ".html", ".xml"))
+            v.startswith("data/") or v.startswith("./")
+            or v.endswith((".yaml", ".yml", ".csv", ".xlsx", ".htm", ".html", ".xml"))
             or k.endswith(("_dir", "_path", "path"))
         ):
             args[k] = Path(v)
@@ -74,17 +75,15 @@ def _deep_merge(a: Any, b: Any) -> Any:
             out[k] = _deep_merge(a.get(k), v) if k in a else v
         return out
     if isinstance(a, list) and isinstance(b, list):
-        # Concatenate, then de-dup by name+date for InsiderTransaction;
-        # otherwise prefer non-empty items.
         if a and b:
             return a + b
         return b or a
-    # Scalar (or model becoming dict): prefer non-None addition over base.
     return b if b is not None else a
 
 
 def ingest_all(config: dict[str, Any]) -> ExtractedFinancials:
-    """Run every ingester listed in the config, merge results, return."""
+    """Run every ingester listed in the config, merge results, layer in the
+    inline `industry:` assumptions block, then return."""
     out = ExtractedFinancials()
     sources: list[str] = []
     for spec in config.get("ingesters", []):
@@ -94,7 +93,13 @@ def ingest_all(config: dict[str, Any]) -> ExtractedFinancials:
             sources.append(partial.meta.source)
         out = merge_into(out, partial)
 
-    # Compose a single source line listing all ingesters used.
+    # Inline industry assumptions — the analyst's per-company calibration.
+    if "industry" in config:
+        industry_partial = ExtractedFinancials()
+        industry_partial.industry = IndustryBenchmarks(**config["industry"])
+        sources.append("industry:inline")
+        out = merge_into(out, industry_partial)
+
     if sources:
         out.meta.source = " + ".join(sources)
     if "meta" in config:

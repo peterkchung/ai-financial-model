@@ -4,7 +4,7 @@ Pipeline that orchestrates multiple data sources into a populated Excel valuatio
 
 ## Status
 
-v0.1 — orchestrator runs five ingesters end-to-end against Amazon and produces a validated FCFF DCF workbook. All four mechanical-tie checks pass at 0% variance.
+v0.1 — orchestrator runs four ingesters end-to-end against Amazon and produces a validated FCFF DCF workbook. All four mechanical-tie checks pass at 0% variance.
 
 ## Project layout
 
@@ -14,12 +14,11 @@ ai-financial-model/
 ├── Makefile
 ├── pyproject.toml
 ├── config/companies/
-│   └── amzn.yaml                     # company config: which ingesters to run for Amazon
+│   └── amzn.yaml                     # company config: identity + valuation assumptions + ingesters
 ├── scripts/
-│   ├── seed_data.py                  # one-shot bootstrap: SEC, FRED, NYU Stern downloads
+│   ├── seed_data.py                  # one-shot bootstrap: SEC + FRED downloads
 │   ├── build_template.py             # regenerate the blank template
-│   ├── refresh_macro_fred.py         # FRED → data/macro_inputs/<key>.yaml (vendor adapter)
-│   └── refresh_industry_damodaran.py # NYU Stern → data/industry/<key>.yaml (vendor adapter)
+│   └── refresh_macro_fred.py         # FRED → data/macro_inputs/<key>.yaml (vendor adapter)
 ├── templates/
 │   └── valuation_template.xlsx       # 7-sheet two-stage FCFF DCF skeleton
 ├── src/ai_financial_model/
@@ -32,7 +31,6 @@ ai-financial-model/
 │   │   ├── sec_10q.py                # 10-Q wrapper around sec_xbrl
 │   │   ├── earnings_release.py       # 8-K Ex 99.1 → forward guidance
 │   │   ├── form4.py                  # Form 4 XML → insider transactions
-│   │   ├── industry.py               # generic IndustryBenchmarks loader (YAML/CSV)
 │   │   └── macro.py                  # generic MacroInputs loader (YAML/CSV)
 │   ├── generation/
 │   │   └── populator.py              # ExtractedFinancials → populated workbook
@@ -45,9 +43,8 @@ ai-financial-model/
 └── data/
     ├── sec/                          # 10-K, 10-Q, 8-K, DEF 14A, Form 4, FSDS bulk (gitignored)
     ├── ir/                           # press releases, CFO commentary (gitignored)
-    ├── macro/                        # raw vendor data — FRED CSVs, Damodaran .xls (gitignored)
+    ├── macro/                        # raw vendor data — FRED CSVs (gitignored)
     ├── macro_inputs/                 # canonical generic-format yaml the pipeline reads (committed)
-    ├── industry/                     # canonical generic-format yaml the pipeline reads (committed)
     └── litigation/                   # docket notes (committed)
 ```
 
@@ -62,7 +59,7 @@ cd ai-financial-model
 make install
 
 # 3. Bootstrap the data corpus (~80 MB download, ~640 MB unpacked)
-#    Pulls SEC EDGAR filings, FRED CSVs, NYU Stern industry datasets.
+#    Pulls SEC EDGAR filings and FRED CSVs.
 #    Idempotent: re-running skips files that already exist.
 make seed-data
 
@@ -86,11 +83,50 @@ The `output/amzn/model.xlsx` is the analyst-facing deliverable — a 7-sheet FCF
 | AMZN Form 4 filings (latest 5) | `data/sec/amzn/` | ~25 KB | Insider transactions |
 | AMZN earnings press release (latest 8-K Ex 99.1) | `data/ir/amzn/latest_press_release.htm` | ~600 KB | Forward guidance |
 | FRED macro CSVs (DGS10, DGS30, DBAA, DEXUSEU, CPIAUCSL, GDPC1) | `data/macro/fred/*.csv` | ~800 KB | Inputs for `refresh-macro` |
-| NYU Stern industry datasets (totalbeta, margin, roc, wacc, histimpl) | `data/macro/damodaran/*.xls` | ~400 KB | Inputs for `refresh-industry` |
-
-The pipeline-canonical yamls (`data/macro_inputs/us_default.yaml`, `data/industry/retail_general.yaml`) ship in the repo — `seed-data` only pulls the upstream raw vendor files needed to regenerate them. Run `make refresh-macro` / `make refresh-industry` when you want fresh values.
 
 > **SEC Note:** EDGAR requires a User-Agent header identifying the requester. The seed script defaults to `ai-financial-model-research aifm-bootstrap@example.com`. Override via `SEC_UA="Your Org admin@yourorg.com" make seed-data`.
+
+## How the analyst works with the pipeline
+
+The **company config** (`config/companies/<ticker>.yaml`) is the analyst's interface. One file per company. It contains three sections:
+
+1. **`meta:`** — identity (ticker, company name, valuation date)
+2. **`industry:`** — per-company calibration (β, ERP, target margins, terminal WACC, ROIC). These are judgment calls; pull starting numbers from any source you like — industry tables, bottom-up build, your own thesis. **Edit them directly here.** No separate file, no vendor lock-in.
+3. **`ingesters:`** — which automated data feeds to run for this company (SEC filings, earnings releases, Form 4s, shared macro)
+
+```yaml
+meta:
+  ticker: AMZN
+  company_name: Amazon.com, Inc.
+  valuation_date: "2025-12-31"
+
+industry:
+  industry_name: Retail (General)
+  levered_beta: 0.78                # cost-of-equity input
+  equity_risk_premium: 0.0475       # standard mature-US ERP
+  pretax_operating_margin: 0.135    # target Y10 EBIT margin (your thesis)
+  return_on_invested_capital: 0.31  # terminal ROIC
+  cost_of_capital: 0.0727           # terminal WACC
+  sales_to_capital: 1.50            # reinvestment efficiency
+
+ingesters:
+  - type: sec_xbrl
+    args:
+      fsds_dir: data/sec/financial_statement_data_sets/2026q1
+      cik: 1018724
+      form: 10-K
+  - type: earnings_release
+    args:
+      html_path: data/ir/amzn/latest_press_release.htm
+  - type: form4
+    args:
+      form4_dir: data/sec/amzn
+  - type: macro
+    args:
+      path: data/macro_inputs/us_default.yaml
+```
+
+**Industry assumptions inline; macro shared.** The split reflects real usage — every analyst will tune β and target margin per company, but rf, FX, and credit spreads are the same across all companies in the same currency / regime, so they live in one shared `data/macro_inputs/<key>.yaml`.
 
 ## Pipeline architecture
 
@@ -103,29 +139,10 @@ company config (YAML) ──orchestrator──▶ ExtractedFinancials (merged)
                                          │                  │
                                          │                  └──validator──▶ ValidationReport
                                          │
-                                         (multiple ingesters, deep-merged)
+                                         (ingesters + inline industry block, deep-merged)
 ```
 
-The company config lists which ingesters to run with which arguments. The orchestrator runs them in order, deep-merges their partial `ExtractedFinancials` outputs, and hands the merged result to the populator.
-
-## Generalizable ingestion
-
-Reference-data ingesters are **vendor-agnostic**. They read flat YAML/CSV files written in a standard format. Vendor-specific parsing lives in *adapter scripts* under `scripts/refresh_*.py` that produce those files. The pipeline never imports vendor code.
-
-Pattern:
-
-```
-vendor source ──refresh adapter (scripts/)──▶ data/<type>/<key>.yaml ──ingester──▶ ExtractedFinancials
-```
-
-Two examples live in the codebase:
-
-| Type | Pipeline reads | Refresh adapter | Vendor |
-|---|---|---|---|
-| Industry benchmarks | `data/industry/<key>.yaml` | `scripts/refresh_industry_damodaran.py` | NYU Stern |
-| Macro inputs | `data/macro_inputs/<key>.yaml` | `scripts/refresh_macro_fred.py` | FRED |
-
-Swap to a different vendor (Bloomberg, FactSet, internal feed) by writing a new `scripts/refresh_<type>_<vendor>.py` that emits the same yaml format. The pipeline is unchanged.
+The orchestrator runs each ingester listed in the config, then layers in the inline `industry:` block (analyst calibration wins last), and hands the merged result to the populator.
 
 ## Day-to-day commands
 
@@ -135,9 +152,8 @@ make ingest-company COMPANY=amzn   # orchestrate ingesters → extracted.json
 make generate COMPANY=amzn         # populate the template → model.xlsx
 make validate COMPANY=amzn         # run mechanical-tie checks
 
-# Refresh reference data (rerun whenever you want fresher inputs):
+# Refresh shared macro feed when rates have moved:
 make refresh-macro                  # FRED CSVs → data/macro_inputs/us_default.yaml
-make refresh-industry               # Damodaran .xls → data/industry/retail_general.yaml
 
 # Other:
 make template                       # regenerate templates/valuation_template.xlsx
@@ -148,42 +164,14 @@ make help                           # show every target
 ## Adding a new company
 
 1. Drop source documents into `data/sec/<ticker>/` (filings) and `data/ir/<ticker>/` (IR collateral).
-2. Author `config/companies/<ticker>.yaml` listing which ingesters to run with which paths.
+2. Copy `config/companies/amzn.yaml` to `config/companies/<ticker>.yaml` and edit:
+   - `meta` block: ticker, name, valuation date
+   - `industry` block: your calibration assumptions
+   - `ingesters` block: paths and CIK
 3. `make process-company COMPANY=<ticker>`.
-
-A typical company config:
-
-```yaml
-meta:
-  ticker: AMZN
-  company_name: Amazon.com, Inc.
-  valuation_date: "2025-12-31"
-
-ingesters:
-  - type: sec_xbrl
-    args:
-      fsds_dir: data/sec/financial_statement_data_sets/2026q1
-      cik: 1018724
-      form: 10-K
-  - type: earnings_release
-    args:
-      html_path: data/ir/amzn/q1_2026_press_release.htm
-  - type: form4
-    args:
-      form4_dir: data/sec/amzn
-  - type: macro
-    args:
-      path: data/macro_inputs/us_default.yaml
-  - type: industry
-    args:
-      path: data/industry/retail_general.yaml
-```
-
-Later ingesters override earlier ones for overlapping fields; lists (e.g. insider activity) concatenate.
 
 ## What's next
 
-- **Replace SEC HTML stub with full extractor** for filings not yet in the FSDS bulk file.
 - **Confidence scoring** — every populated cell gets a green/yellow/red badge derived from extraction confidence + cross-source agreement.
 - **Peer ingestion config** — extend the company config to pull a peer comp set in one orchestrator run.
 - **Web/UI surface** — currently CLI-only.

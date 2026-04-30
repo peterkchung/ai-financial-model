@@ -1,12 +1,28 @@
-# About: Company config for Amazon — orchestrates the pipeline. Each ingester
-# produces a partial ExtractedFinancials; later entries override earlier ones
-# for overlapping fields, and lists concatenate. Edit the meta block and the
-# ingester args, not the schema.
+# About: Company config for Amazon. The analyst maintains this file:
+#   - meta: identity (ticker, company name, valuation date)
+#   - industry: per-company calibration (β, ERP, target margins, etc.).
+#               These are judgment calls — start from industry averages,
+#               override to reflect the company's actual mix and your thesis.
+#   - ingesters: which automated data feeds to run for this company.
+#
+# Run: make process-company COMPANY=amzn
 
 meta:
   ticker: AMZN
   company_name: Amazon.com, Inc.
   valuation_date: "2025-12-31"
+
+# Per-company valuation assumptions. Plain numbers — fill from any source
+# (industry tables, bottom-up build, your own thesis). All decimals.
+industry:
+  industry_name: Retail (General)         # for traceability; not used in formulas
+  levered_beta: 0.78                      # used in Cost of Equity = rf + β·ERP
+  unlevered_beta: 0.78
+  equity_risk_premium: 0.0475             # standard mature-US ERP; override to taste
+  pretax_operating_margin: 0.0815         # target Y10 EBIT margin
+  return_on_invested_capital: 0.31        # terminal ROIC
+  cost_of_capital: 0.0727                 # terminal WACC
+  sales_to_capital: 1.50                  # reinvestment efficiency
 
 ingesters:
   # Company financials — structured XBRL beats HTML scraping
@@ -26,12 +42,8 @@ ingesters:
     args:
       form4_dir: data/sec/amzn
 
-  # Macro inputs (rf, credit spread, FX) — refreshed via scripts/refresh_macro_fred.py
+  # Macro inputs (rf, credit spread, FX) — shared across companies; refresh
+  # via scripts/refresh_macro_fred.py when rates move.
   - type: macro
     args:
       path: data/macro_inputs/us_default.yaml
-
-  # Industry priors (β, ERP, margin, ROIC) — refreshed via scripts/refresh_industry_*.py
-  - type: industry
-    args:
-      path: data/industry/retail_general.yaml

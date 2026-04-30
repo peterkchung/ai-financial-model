@@ -1,6 +1,6 @@
 # About: One-shot data bootstrap. Downloads everything the AMZN end-to-end
-# pipeline needs from public sources (SEC EDGAR, FRED, NYU Stern). Idempotent —
-# re-running skips files that already exist.
+# pipeline needs from public sources (SEC EDGAR, FRED). Idempotent — re-running
+# skips files that already exist.
 #
 # Run after a fresh clone:
 #   make seed-data
@@ -39,7 +39,7 @@ def fetch(url: str, dest: Path, ua: str = UA) -> None:
 
 def fetch_sec_fsds() -> None:
     """SEC bulk XBRL facts — the high-recall company-financials source."""
-    print("\n[1/5] SEC Financial Statement Data Sets (~80 MB zip → ~640 MB unpacked)")
+    print("\n[1/4] SEC Financial Statement Data Sets (~80 MB zip → ~640 MB unpacked)")
     fsds_dir = REPO / "data/sec/financial_statement_data_sets"
     zip_path = fsds_dir / "2026q1.zip"
     fetch(
@@ -55,7 +55,7 @@ def fetch_sec_fsds() -> None:
 
 def fetch_amzn_form4s(n: int = 5) -> None:
     """Recent Form 4 (insider transactions) XML for AMZN."""
-    print(f"\n[2/5] AMZN Form 4 filings (latest {n})")
+    print(f"\n[2/4] AMZN Form 4 filings (latest {n})")
     cik = "1018724"
     cik_padded = cik.zfill(10)
     sub_url = f"https://data.sec.gov/submissions/CIK{cik_padded}.json"
@@ -85,7 +85,7 @@ def fetch_amzn_press_release() -> None:
     Discovers the latest 8-K from EDGAR submissions, then resolves its
     Ex 99.1 by listing the filing's archive index.
     """
-    print("\n[3/5] AMZN earnings press release (latest 8-K Ex 99.1)")
+    print("\n[3/4] AMZN earnings press release (latest 8-K Ex 99.1)")
     cik = "1018724"
     cik_padded = cik.zfill(10)
     sub_url = f"https://data.sec.gov/submissions/CIK{cik_padded}.json"
@@ -120,21 +120,13 @@ def fetch_amzn_press_release() -> None:
 
 def fetch_fred_csvs() -> None:
     """FRED macro CSVs — feed into refresh_macro_fred.py."""
-    print("\n[4/5] FRED macro CSVs")
+    print("\n[4/4] FRED macro CSVs")
     for series in ["DGS10", "DGS30", "DBAA", "DEXUSEU", "CPIAUCSL", "GDPC1"]:
         fetch(
             f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}",
             REPO / f"data/macro/fred/{series.lower()}.csv",
             ua="Mozilla/5.0",
         )
-
-
-def fetch_damodaran() -> None:
-    """NYU Stern industry-aggregate datasets — feed into refresh_industry_damodaran.py."""
-    print("\n[5/5] NYU Stern industry datasets")
-    base = "https://pages.stern.nyu.edu/~adamodar/pc/datasets"
-    for fn in ["totalbeta.xls", "margin.xls", "roc.xls", "wacc.xls", "histimpl.xls"]:
-        fetch(f"{base}/{fn}", REPO / f"data/macro/damodaran/{fn}", ua="Mozilla/5.0")
 
 
 def main() -> None:
@@ -144,11 +136,9 @@ def main() -> None:
     fetch_amzn_form4s()
     fetch_amzn_press_release()
     fetch_fred_csvs()
-    fetch_damodaran()
     print("\n✓ Done. Next steps:")
     print("  1. (optional) make refresh-macro       # FRED → data/macro_inputs/us_default.yaml")
-    print("  2. (optional) make refresh-industry    # Damodaran → data/industry/retail_general.yaml")
-    print("  3. make process-company COMPANY=amzn   # end-to-end pipeline")
+    print("  2. make process-company COMPANY=amzn   # end-to-end pipeline")
 
 
 if __name__ == "__main__":

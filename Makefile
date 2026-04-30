@@ -9,14 +9,14 @@ OUT_DIR ?= output/$(COMPANY)
 OUT ?= $(OUT_DIR)/model.xlsx
 EXTRACTED ?= $(OUT_DIR)/extracted.json
 
-.PHONY: help install seed-data template refresh-macro refresh-industry \
+.PHONY: help install seed-data template refresh-macro \
         ingest-company generate validate process-company \
         clean test demo
 
 help:
 	@echo "First-time setup:"
 	@echo "  install            — uv sync (with dev extras)"
-	@echo "  seed-data          — download SEC, FRED, NYU Stern data needed for the AMZN demo"
+	@echo "  seed-data          — download SEC + FRED data needed for the AMZN demo"
 	@echo "  demo               — install + seed-data + process-company COMPANY=amzn (one shot)"
 	@echo ""
 	@echo "Pipeline:"
@@ -26,10 +26,8 @@ help:
 	@echo "  generate           — only populate the template (using \$$EXTRACTED)"
 	@echo "  validate           — only run validation on \$$OUT"
 	@echo ""
-	@echo "Reference-data refresh (vendor adapters):"
+	@echo "Reference-data refresh:"
 	@echo "  refresh-macro      — FRED CSVs → data/macro_inputs/us_default.yaml"
-	@echo "  refresh-industry   — Damodaran .xls → data/industry/retail_general.yaml"
-	@echo "                       Override INDUSTRY=\"...\" KEY=... for other industries."
 	@echo ""
 	@echo "Other:"
 	@echo "  test, clean"
@@ -65,11 +63,6 @@ process-company: $(OUT_DIR)
 
 refresh-macro:
 	uv run python scripts/refresh_macro_fred.py --key us_default
-
-INDUSTRY ?= Retail (General)
-KEY ?= retail_general
-refresh-industry:
-	uv run python scripts/refresh_industry_damodaran.py --industry "$(INDUSTRY)" --key $(KEY)
 
 clean:
 	rm -rf output/$(COMPANY)
