@@ -89,6 +89,20 @@ cover_rows = [
     ("Reporting currency", "USD, millions unless noted", None),
     ("Source — financials", "", "meta.source"),
     ("", "", None),
+    ("Forward Guidance (latest earnings release)", "", "_subhead"),
+    ("Period", "", "forward_guidance.period"),
+    ("Revenue, low ($M)", "", "forward_guidance.revenue_low"),
+    ("Revenue, high ($M)", "", "forward_guidance.revenue_high"),
+    ("Operating income, low ($M)", "", "forward_guidance.operating_income_low"),
+    ("Operating income, high ($M)", "", "forward_guidance.operating_income_high"),
+    ("Notes", "", "forward_guidance.notes"),
+    ("", "", None),
+    ("Forecast vs guidance (sanity)", "", "_subhead"),
+    ("  Y1 forecast revenue", "=Forecast!C3", "_formula"),
+    ("  Implied Q-avg ($M, Y1 / 4)", "=Forecast!C3/4", "_formula"),
+    ("  Guidance revenue midpoint", None, "_guidance_midpoint"),
+    ("  Implied Q-avg / guidance midpoint", None, "_guidance_ratio"),
+    ("", "", None),
     ("Methodology", "Two-stage FCFF DCF. Explicit 10-year forecast → terminal value via stable-growth Gordon. Operating leases treated as debt (post-ASC 842).", None),
     ("", "", None),
     ("Cell color legend", "", None),
@@ -104,12 +118,51 @@ cover_rows = [
     ("  WACC", "Cost of capital build", None),
     ("  Valuation", "Sum-of-PV → equity value → value per share", None),
 ]
+# Track row numbers for the guidance block so the sanity-check formulas can
+# reference the populated revenue_low/high cells.
+guidance_rows: dict[str, int] = {}
 for i, (k, v, field) in enumerate(cover_rows, start=3):
     ws.cell(row=i, column=1, value=k).font = Font(bold=bool(k and not k.startswith("  ")))
+
+    if field == "_subhead":
+        # Section header with light fill spanning A:B
+        ws.cell(row=i, column=1).font = SUBHEAD_FONT
+        ws.cell(row=i, column=1).fill = SUBHEAD_FILL
+        ws.cell(row=i, column=2).fill = SUBHEAD_FILL
+        continue
+
+    if field == "_formula":
+        c = ws.cell(row=i, column=2, value=v)
+        style_computed(c, USD_M)
+        continue
+
+    if field == "_guidance_midpoint":
+        # Average of revenue_low and revenue_high
+        lo = guidance_rows["forward_guidance.revenue_low"]
+        hi = guidance_rows["forward_guidance.revenue_high"]
+        c = ws.cell(row=i, column=2, value=f"=IFERROR((B{lo}+B{hi})/2,\"\")")
+        style_computed(c, USD_M)
+        continue
+
+    if field == "_guidance_ratio":
+        # Implied Q-avg / midpoint  (Q-avg row is two rows above midpoint)
+        c = ws.cell(row=i, column=2, value=f"=IFERROR(B{i-2}/B{i-1},\"\")")
+        style_computed(c, '0.0%')
+        continue
+
     c = ws.cell(row=i, column=2, value=v)
     c.alignment = Alignment(wrap_text=True, vertical="top")
-    if field:
+    if field and field.startswith("forward_guidance."):
+        guidance_rows[field] = i
+        style_actual(c, USD_M if "_low" in field or "_high" in field else None,
+                     schema_field=field)
+    elif field:
         style_actual(c, schema_field=field)
+
+# Notes row needs more vertical space
+notes_row = guidance_rows.get("forward_guidance.notes")
+if notes_row:
+    ws.row_dimensions[notes_row].height = 60
 
 # ============== Sheet 2: Inputs ==============
 ws = wb.create_sheet("Inputs")

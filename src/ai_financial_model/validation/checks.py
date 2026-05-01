@@ -163,4 +163,80 @@ def validate_workbook(path: Path, tolerance_pct: float = DEFAULT_TOLERANCE_PCT) 
                 cell_refs=["Segments!D8", "Historicals!D2"],
             ))
 
+    # Check: Y1 forecast revenue (annualized to a quarter) consistent with
+    # the company's own forward guidance for the next quarter, when available.
+    # Rough check — Q2 alone isn't representative of a full year, so we use a
+    # 10% buffer around the guidance midpoint for the YELLOW band.
+    _check_forecast_vs_guidance(report, wb, base_revenue=ns)
+
     return report
+
+
+def _check_forecast_vs_guidance(report: ValidationReport, wb, *,
+                                 base_revenue: Optional[float]) -> None:
+    """Compare Y1 forecast quarterly average to forward-guidance range.
+
+    Reads guidance from the Cover sheet (forward_guidance.revenue_low/high)
+    and computes Y1 revenue manually as base × (1 + Y1-Y5 growth) since the
+    Forecast sheet's Y1 cell is a formula and openpyxl can't evaluate it.
+    Skips silently if any input is missing.
+    """
+    if "Cover" not in wb.sheetnames or base_revenue is None:
+        return
+    cover = wb["Cover"]
+    rev_low: Optional[float] = None
+    rev_high: Optional[float] = None
+    for row in cover.iter_rows(min_row=1, max_row=cover.max_row, values_only=False):
+        if not row or not row[0].value:
+            continue
+        label = str(row[0].value).strip().lower()
+        if label == "revenue, low ($m)":
+            rev_low = _f(row[1].value)
+        elif label == "revenue, high ($m)":
+            rev_high = _f(row[1].value)
+    if rev_low is None or rev_high is None:
+        return
+
+    # Y1 growth rate from Inputs sheet
+    if "Inputs" not in wb.sheetnames:
+        return
+    growth: Optional[float] = None
+    for row in wb["Inputs"].iter_rows(min_row=1, values_only=False):
+        if not row or not row[0].value:
+            continue
+        if str(row[0].value).strip().lower().startswith("compounded revenue growth"):
+            growth = _f(row[1].value)
+            break
+    if growth is None:
+        return
+
+    y1_revenue = base_revenue * (1 + growth)
+    quarterly_avg = y1_revenue / 4
+    midpoint = (rev_low + rev_high) / 2
+
+    if rev_low <= quarterly_avg <= rev_high:
+        sev = Severity.GREEN
+        msg = (f"Y1 implied Q-avg ${quarterly_avg:,.0f}M is within guidance "
+               f"range ${rev_low:,.0f}M–${rev_high:,.0f}M.")
+    else:
+        var = _variance_pct(midpoint, quarterly_avg)
+        # 10% seasonality buffer — Q2 isn't representative of full year
+        if var <= 10:
+            sev = Severity.YELLOW
+            msg = (f"Y1 implied Q-avg ${quarterly_avg:,.0f}M is outside guidance "
+                   f"range (${rev_low:,.0f}M–${rev_high:,.0f}M) but within 10% of "
+                   f"midpoint ({var:.1f}%). Acceptable given Q2-vs-annual seasonality.")
+        else:
+            sev = Severity.RED
+            msg = (f"Y1 implied Q-avg ${quarterly_avg:,.0f}M deviates {var:.1f}% from "
+                   f"guidance midpoint ${midpoint:,.0f}M (range ${rev_low:,.0f}M–"
+                   f"${rev_high:,.0f}M). Reconcile growth assumption or investigate "
+                   f"seasonality.")
+    report.findings.append(Finding(
+        check="forecast_y1_consistent_with_guidance",
+        severity=sev,
+        message=msg,
+        expected=midpoint,
+        actual=quarterly_avg,
+        cell_refs=["Cover!B11", "Cover!B12", "Forecast!C3", "Inputs!B11"],
+    ))
