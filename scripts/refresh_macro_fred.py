@@ -1,9 +1,11 @@
-# About: Vendor adapter — reads FRED CSV downloads and writes a
-# data/macro_inputs/<key>.yaml file in the generic format the pipeline
-# consumes. The pipeline never depends on FRED specifically; this is just
-# one possible source.
+# About: Per-company vendor adapter — reads FRED CSV downloads from
+# coverage/<company>/inputs/macro/fred/ and writes the canonical
+# coverage/<company>/inputs/macro/inputs.yaml that the pipeline consumes.
+# The pipeline never depends on FRED specifically; this is just one possible
+# source. Each company gets its own copy so an analyst can hold a custom
+# macro view per name.
 #
-# Run: uv run python scripts/refresh_macro_fred.py --key us_default
+# Run: uv run python scripts/refresh_macro_fred.py --company amzn
 
 from __future__ import annotations
 import argparse
@@ -15,8 +17,6 @@ from typing import Optional
 import yaml
 
 REPO = Path(__file__).resolve().parents[1]
-FRED_DIR = REPO / "data" / "macro" / "fred"
-OUT_DIR = REPO / "data" / "macro_inputs"
 
 
 # series_id → (schema field, scale).
@@ -35,7 +35,7 @@ def read_series(path: Path) -> list[tuple[str, Optional[float]]]:
     rows = []
     with path.open(newline="") as f:
         reader = csv.reader(f)
-        next(reader)  # header
+        next(reader)
         for r in reader:
             if len(r) < 2:
                 continue
@@ -62,16 +62,24 @@ def yoy(obs: list[tuple[str, Optional[float]]], current_date: str) -> Optional[f
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--key", required=True, help="Output file key (e.g. us_default).")
-    p.add_argument("--fred-dir", type=Path, default=FRED_DIR)
+    p.add_argument("--company", default="amzn",
+                   help="Coverage ticker (writes to coverage/<company>/inputs/macro/).")
     args = p.parse_args()
 
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    fred_dir = REPO / f"coverage/{args.company}/inputs/macro/fred"
+    out_path = REPO / f"coverage/{args.company}/inputs/macro/inputs.yaml"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if not fred_dir.exists():
+        raise SystemExit(
+            f"FRED CSV directory missing: {fred_dir}\n"
+            f"Run `make seed-data COMPANY={args.company}` first."
+        )
 
     fields: dict[str, object] = {}
     latest_date = None
     for series_id, (field, scale) in SERIES_MAP.items():
-        path = args.fred_dir / f"{series_id.lower()}.csv"
+        path = fred_dir / f"{series_id.lower()}.csv"
         if not path.exists():
             continue
         obs = read_series(path)
@@ -96,9 +104,8 @@ def main():
     if latest_date:
         fields["as_of_date"] = latest_date
 
-    out_path = OUT_DIR / f"{args.key}.yaml"
     out_path.write_text(yaml.safe_dump(fields, sort_keys=False))
-    print(f"Wrote {out_path}")
+    print(f"Wrote {out_path.relative_to(REPO)}")
     print(yaml.safe_dump(fields, sort_keys=False))
 
 

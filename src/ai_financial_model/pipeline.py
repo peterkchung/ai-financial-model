@@ -144,4 +144,5 @@ def ingest_all(config: dict[str, Any]) -> tuple[ExtractedFinancials, dict[str, s
     if "meta" in config:
         for k, v in config["meta"].items():
             setattr(out.meta, k, v)
+            provenance[f"meta.{k}"] = "company-config"
     return out, provenance

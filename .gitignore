@@ -12,21 +12,13 @@ htmlcov/
 .venv/
 .python-version
 
-# Pipeline outputs
-output/
+# Per-company hub: only config.yaml is committed; raw inputs and run outputs
+# are reproducible and stay local.
+coverage/*/inputs/
+coverage/*/outputs/
 
-# Raw vendor downloads — re-fetchable via scripts/refresh_*.py or
-# curl from the documented URLs. Do not commit large or redundant copies.
-# Canonical refreshed yamls under data/industry/ and data/macro_inputs/
-# remain tracked.
-data/sec/**/*.htm
-data/sec/**/*.xml
-data/sec/financial_statement_data_sets/*.zip
-data/sec/financial_statement_data_sets/*/
-data/ir/**/*.htm
-data/macro/fred/*.csv
-data/macro/damodaran/*.xls
-data/macro/damodaran/*.xlsx
+# Transient bulk download cache (SEC FSDS, etc). Disposable; nothing committed.
+data/
 
 # IDE
 .vscode/

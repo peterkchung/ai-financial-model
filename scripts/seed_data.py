@@ -1,25 +1,35 @@
-# About: One-shot data bootstrap. Downloads everything the AMZN end-to-end
-# pipeline needs from public sources (SEC EDGAR, FRED). Idempotent — re-running
-# skips files that already exist.
+# About: Per-company data bootstrap. Downloads everything one company's
+# pipeline needs from public sources (SEC EDGAR, FRED), and slices the SEC
+# FSDS bulk into a per-company subset. Idempotent — re-running skips files
+# that already exist.
 #
 # Run after a fresh clone:
-#   make seed-data
+#   make seed-data COMPANY=amzn
 #   make process-company COMPANY=amzn
 
 from __future__ import annotations
+import argparse
 import json
 import os
+import re
 import shutil
 import urllib.request
 import urllib.error
 import zipfile
 from pathlib import Path
 
-# SEC requires a User-Agent identifying the requester, format:
+# SEC requires a User-Agent identifying the requester:
 # "<Company / Project> <admin email>". Override via env var SEC_UA.
 DEFAULT_UA = "ai-financial-model-research aifm-bootstrap@example.com"
 UA = os.environ.get("SEC_UA", DEFAULT_UA)
 REPO = Path(__file__).resolve().parents[1]
+
+
+# Per-company configuration the script needs to seed. Add more companies here
+# (CIK + ticker prefix used in 8-K exhibit naming) to support seeding them.
+COMPANY_REGISTRY: dict[str, dict] = {
+    "amzn": {"cik": "1018724", "ticker_prefix": "amzn"},
+}
 
 
 def fetch(url: str, dest: Path, ua: str = UA) -> None:
@@ -37,26 +47,71 @@ def fetch(url: str, dest: Path, ua: str = UA) -> None:
         raise SystemExit(f"  ✗ {url} → HTTP {e.code}: {e.reason}") from e
 
 
-def fetch_sec_fsds() -> None:
-    """SEC bulk XBRL facts — the high-recall company-financials source."""
-    print("\n[1/4] SEC Financial Statement Data Sets (~80 MB zip → ~640 MB unpacked)")
-    fsds_dir = REPO / "data/sec/financial_statement_data_sets"
-    zip_path = fsds_dir / "2026q1.zip"
+def fetch_sec_fsds() -> Path:
+    """Bulk SEC FSDS file — shared download cache (per-company slice happens after).
+
+    Returns the unpacked directory."""
+    print("\n[1/4] SEC Financial Statement Data Sets bulk (~80 MB zip → ~640 MB unpacked)")
+    cache = REPO / "data" / "sec_fsds_cache"
+    zip_path = cache / "2026q1.zip"
     fetch(
         "https://www.sec.gov/files/dera/data/financial-statement-data-sets/2026q1.zip",
         zip_path,
     )
-    unpacked = fsds_dir / "2026q1"
+    unpacked = cache / "2026q1"
     if not (unpacked / "sub.txt").exists():
         print(f"  ⊞ unzipping {zip_path.name}")
         with zipfile.ZipFile(zip_path) as zf:
             zf.extractall(unpacked)
+    return unpacked
 
 
-def fetch_amzn_form4s(n: int = 5) -> None:
-    """Recent Form 4 (insider transactions) XML for AMZN."""
-    print(f"\n[2/4] AMZN Form 4 filings (latest {n})")
-    cik = "1018724"
+def slice_fsds_for_company(bulk_dir: Path, *, cik: str, dest: Path) -> None:
+    """Slice the bulk sub.txt + num.txt into per-company subsets.
+
+    sub.txt: header + every row whose CIK matches (column 2, 1-indexed).
+             Form filter is intentionally absent — we keep all forms (10-K,
+             10-Q, 8-K, etc.) for the company so different ingester `form`
+             selections can target the same slice.
+    num.txt: header + every row whose adsh appears in the sliced sub.txt
+             (i.e., every fact for any of this company's filings).
+    """
+    dest.mkdir(parents=True, exist_ok=True)
+    sub_in = bulk_dir / "sub.txt"
+    num_in = bulk_dir / "num.txt"
+    sub_out = dest / "sub.txt"
+    num_out = dest / "num.txt"
+
+    if sub_out.exists() and num_out.exists() and sub_out.stat().st_size > 0 and num_out.stat().st_size > 0:
+        print(f"  ✓ {sub_out.relative_to(REPO)}")
+        print(f"  ✓ {num_out.relative_to(REPO)}")
+        return
+
+    print(f"  ⊟ slicing CIK {cik} from {bulk_dir.relative_to(REPO)}")
+    company_adshes: set[str] = set()
+    with sub_in.open(encoding="latin-1") as src, sub_out.open("w", encoding="latin-1") as out:
+        header = src.readline()
+        out.write(header)
+        for line in src:
+            cols = line.rstrip("\n").split("\t")
+            if len(cols) > 1 and cols[1] == cik:
+                out.write(line)
+                company_adshes.add(cols[0])
+
+    with num_in.open(encoding="latin-1") as src, num_out.open("w", encoding="latin-1") as out:
+        header = src.readline()
+        out.write(header)
+        for line in src:
+            adsh = line.split("\t", 1)[0]
+            if adsh in company_adshes:
+                out.write(line)
+
+    print(f"  ⤓ {sub_out.relative_to(REPO)} ({sum(1 for _ in sub_out.open()):,} rows)")
+    print(f"  ⤓ {num_out.relative_to(REPO)} ({sum(1 for _ in num_out.open()):,} rows)")
+
+
+def fetch_form4s(*, company: str, cik: str, n: int = 5) -> None:
+    print(f"\n[2/4] {company.upper()} Form 4 filings (latest {n})")
     cik_padded = cik.zfill(10)
     sub_url = f"https://data.sec.gov/submissions/CIK{cik_padded}.json"
     req = urllib.request.Request(sub_url, headers={"User-Agent": UA})
@@ -72,21 +127,14 @@ def fetch_amzn_form4s(n: int = 5) -> None:
 
     for accession, date, primary in matches:
         acc_clean = accession.replace("-", "")
-        # Strip XSL stylesheet prefix from Form 4 paths to get raw XML
         doc = primary.split("/", 1)[1] if primary.startswith("xslF345X06/") else primary
         url = f"https://www.sec.gov/Archives/edgar/data/{cik}/{acc_clean}/{doc}"
-        local = REPO / f"data/sec/amzn/4_{date}_{doc.replace('/', '_')}"
+        local = REPO / f"coverage/{company}/inputs/sec_filings/4_{date}_{doc.replace('/', '_')}"
         fetch(url, local)
 
 
-def fetch_amzn_press_release() -> None:
-    """Most recent AMZN earnings press release (8-K Ex 99.1).
-
-    Discovers the latest 8-K from EDGAR submissions, then resolves its
-    Ex 99.1 by listing the filing's archive index.
-    """
-    print("\n[3/4] AMZN earnings press release (latest 8-K Ex 99.1)")
-    cik = "1018724"
+def fetch_press_release(*, company: str, cik: str, ticker_prefix: str) -> None:
+    print(f"\n[3/4] {company.upper()} earnings press release (latest 8-K Ex 99.1)")
     cik_padded = cik.zfill(10)
     sub_url = f"https://data.sec.gov/submissions/CIK{cik_padded}.json"
     req = urllib.request.Request(sub_url, headers={"User-Agent": UA})
@@ -108,37 +156,58 @@ def fetch_amzn_press_release() -> None:
     req = urllib.request.Request(archive_url, headers={"User-Agent": UA})
     with urllib.request.urlopen(req, timeout=60) as resp:
         listing = resp.read().decode("utf-8", errors="ignore")
-    # Convention for AMZN: amzn-<periodend>xex991.htm
-    import re
-    m = re.search(r'amzn-\d+xex991\.htm', listing)
+    pattern = re.compile(rf'{ticker_prefix}-\d+xex991\.htm')
+    m = pattern.search(listing)
     if not m:
-        print("  ! no ex 99.1 found in latest 8-K archive; skipping")
+        print(f"  ! no ex 99.1 found matching {pattern.pattern} in latest 8-K archive; skipping")
         return
     exhibit = m.group(0)
-    fetch(archive_url + exhibit, REPO / "data/ir/amzn/latest_press_release.htm")
+    fetch(archive_url + exhibit,
+          REPO / f"coverage/{company}/inputs/ir/latest_press_release.htm")
 
 
-def fetch_fred_csvs() -> None:
-    """FRED macro CSVs — feed into refresh_macro_fred.py."""
-    print("\n[4/4] FRED macro CSVs")
+def fetch_fred_csvs(*, company: str) -> None:
+    print(f"\n[4/4] FRED macro CSVs (per-company copy)")
     for series in ["DGS10", "DGS30", "DBAA", "DEXUSEU", "CPIAUCSL", "GDPC1"]:
         fetch(
             f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}",
-            REPO / f"data/macro/fred/{series.lower()}.csv",
+            REPO / f"coverage/{company}/inputs/macro/fred/{series.lower()}.csv",
             ua="Mozilla/5.0",
         )
 
 
 def main() -> None:
-    print("Seeding ai-financial-model data corpus.")
+    p = argparse.ArgumentParser()
+    p.add_argument("--company", default="amzn",
+                   help="Coverage ticker (registered in COMPANY_REGISTRY).")
+    args = p.parse_args()
+
+    if args.company not in COMPANY_REGISTRY:
+        raise SystemExit(
+            f"Unknown company: {args.company}. "
+            f"Registered: {sorted(COMPANY_REGISTRY)}. "
+            f"To add a new one, append a {{cik, ticker_prefix}} entry to "
+            f"COMPANY_REGISTRY in scripts/seed_data.py."
+        )
+    info = COMPANY_REGISTRY[args.company]
+
+    print(f"Seeding ai-financial-model data corpus for {args.company.upper()}.")
     print("Idempotent: re-running skips files that already exist.\n")
-    fetch_sec_fsds()
-    fetch_amzn_form4s()
-    fetch_amzn_press_release()
-    fetch_fred_csvs()
+
+    bulk_dir = fetch_sec_fsds()
+    slice_fsds_for_company(
+        bulk_dir,
+        cik=info["cik"],
+        dest=REPO / f"coverage/{args.company}/inputs/sec_xbrl",
+    )
+    fetch_form4s(company=args.company, cik=info["cik"])
+    fetch_press_release(company=args.company, cik=info["cik"],
+                        ticker_prefix=info["ticker_prefix"])
+    fetch_fred_csvs(company=args.company)
+
     print("\n✓ Done. Next steps:")
-    print("  1. (optional) make refresh-macro       # FRED → data/macro_inputs/us_default.yaml")
-    print("  2. make process-company COMPANY=amzn   # end-to-end pipeline")
+    print(f"  1. (optional) make refresh-macro COMPANY={args.company}")
+    print(f"  2. make process-company COMPANY={args.company}   # end-to-end pipeline")
 
 
 if __name__ == "__main__":

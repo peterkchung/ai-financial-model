@@ -13,14 +13,14 @@ from ai_financial_model.validation import validate_workbook, Severity
 
 REPO = Path(__file__).resolve().parents[1]
 TEMPLATE = REPO / "templates" / "valuation_template.xlsx"
-COMPANY = REPO / "config" / "companies" / "amzn.yaml"
-FSDS = REPO / "data" / "sec" / "financial_statement_data_sets" / "2026q1"
-MACRO = REPO / "data" / "macro_inputs" / "us_default.yaml"
+COMPANY = REPO / "coverage" / "amzn" / "config.yaml"
+FSDS = REPO / "coverage" / "amzn" / "inputs" / "sec_xbrl"
+MACRO = REPO / "coverage" / "amzn" / "inputs" / "macro" / "inputs.yaml"
 
 
 needs_data = pytest.mark.skipif(
-    not (FSDS.exists() and MACRO.exists()),
-    reason="local data corpus not present; run `make seed-data` first",
+    not (FSDS.exists() and (FSDS / "num.txt").exists() and MACRO.exists()),
+    reason="local data corpus not present; run `make seed-data COMPANY=amzn` first",
 )
 
 

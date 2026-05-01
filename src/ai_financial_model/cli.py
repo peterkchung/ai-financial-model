@@ -1,7 +1,8 @@
 # About: CLI entry point. Subcommands map to pipeline stages
 # (ingest-company / generate / validate); `process-company` is the end-to-end
 # orchestrator that runs every ingester listed in a company-config YAML,
-# merges their outputs, populates the template, and validates the workbook.
+# merges their outputs, populates the template, writes mapping.md, and
+# validates the workbook.
 
 from __future__ import annotations
 import json
@@ -11,7 +12,7 @@ from pathlib import Path
 
 import click
 
-from ai_financial_model.generation import populate_template
+from ai_financial_model.generation import populate_template, write_mapping
 from ai_financial_model.validation import validate_workbook
 from ai_financial_model.schema import ExtractedFinancials
 from ai_financial_model.pipeline import load_company_config, ingest_all
@@ -25,22 +26,18 @@ def cli() -> None:
 def _write_audit(
     out_dir: Path,
     *,
-    cfg: dict,
     data: ExtractedFinancials,
-    provenance: dict[str, str],
     pop_report: dict,
     validation_summary: str,
 ) -> Path:
-    """Write a per-run audit log to <out_dir>/audit.json."""
+    """Write a per-run audit log: per-cell execution trace.
+
+    Configuration content (ingesters, inline industry, provenance map) lives
+    in mapping.md. audit.json is the per-cell record of what was written.
+    """
     audit = {
-        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ"),
         "company": data.meta.model_dump(),
-        "ingesters": [
-            {"type": spec["type"], "args": spec.get("args", {})}
-            for spec in cfg.get("ingesters", [])
-        ],
-        "industry_inline": "industry" in cfg,
-        "provenance": provenance,
         "summary": {
             "tagged_cells": pop_report["tagged_cells"],
             "populated": pop_report["populated"],
@@ -53,6 +50,18 @@ def _write_audit(
     path = out_dir / "audit.json"
     path.write_text(json.dumps(audit, indent=2, default=str))
     return path
+
+
+def _resolve_out_dir(company: Path, override: Path | None) -> Path:
+    """Resolve the per-run output directory: coverage/<ticker>/outputs/<ts>/.
+
+    Auto-resolves from the config path's parent (the per-company hub).
+    Honors --out-dir override for unusual cases.
+    """
+    if override is not None:
+        return override
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    return company.resolve().parent / "outputs" / ts
 
 
 @cli.command("ingest-company")
@@ -99,24 +108,36 @@ def validate(workbook: Path, tolerance_pct: float, as_json: bool) -> None:
 @cli.command("process-company")
 @click.option("--company", type=click.Path(exists=True, path_type=Path), required=True)
 @click.option("--template", type=click.Path(exists=True, path_type=Path), required=True)
-@click.option("--out-dir", type=click.Path(path_type=Path), required=True)
-def process_company(company: Path, template: Path, out_dir: Path) -> None:
+@click.option("--out-dir", type=click.Path(path_type=Path), default=None,
+              help="Override; default is coverage/<ticker>/outputs/<UTC-timestamp>/.")
+def process_company(company: Path, template: Path, out_dir: Path | None) -> None:
     """End-to-end: run every ingester in `company`, populate, validate.
 
-    Writes three artifacts to <out_dir>:
+    Writes four artifacts to coverage/<ticker>/outputs/<ts>/:
       - extracted.json   — merged ExtractedFinancials
+      - mapping.md       — blueprint: which sources fed which template cells
       - model.xlsx       — populated workbook
-      - audit.json       — per-cell provenance + run metadata
+      - audit.json       — per-cell execution trace + validation result
     """
-    out_dir.mkdir(parents=True, exist_ok=True)
-    extracted_path = out_dir / "extracted.json"
-    out_path = out_dir / "model.xlsx"
+    resolved_out_dir = _resolve_out_dir(company, out_dir)
+    resolved_out_dir.mkdir(parents=True, exist_ok=True)
+    extracted_path = resolved_out_dir / "extracted.json"
+    out_path = resolved_out_dir / "model.xlsx"
 
     click.echo("[1/3] Orchestrating ingesters…")
     cfg = load_company_config(company)
     data, provenance = ingest_all(cfg)
     extracted_path.write_text(data.model_dump_json(indent=2))
     click.echo(f"  Sources: {data.meta.source}")
+
+    mapping_path = write_mapping(
+        resolved_out_dir,
+        company_config=cfg,
+        company_config_path=company,
+        template_path=template,
+        provenance=provenance,
+        extracted=data,
+    )
 
     click.echo("[2/3] Populating template…")
     pop_report = populate_template(data, template, out_path, provenance=provenance)
@@ -129,14 +150,15 @@ def process_company(company: Path, template: Path, out_dir: Path) -> None:
     click.echo(report.summary())
 
     audit_path = _write_audit(
-        out_dir,
-        cfg=cfg, data=data, provenance=provenance,
+        resolved_out_dir,
+        data=data,
         pop_report=pop_report,
         validation_summary=report.summary(),
     )
 
     click.echo(f"\nOutputs:")
     click.echo(f"  {extracted_path}")
+    click.echo(f"  {mapping_path}")
     click.echo(f"  {out_path}")
     click.echo(f"  {audit_path}")
     if report.overall.value == "red":

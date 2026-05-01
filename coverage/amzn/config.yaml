@@ -25,25 +25,25 @@ industry:
   sales_to_capital: 1.50                  # reinvestment efficiency
 
 ingesters:
-  # Company financials — structured XBRL beats HTML scraping
+  # Company financials — sliced from SEC FSDS bulk into a per-company subset
   - type: sec_xbrl
     args:
-      fsds_dir: data/sec/financial_statement_data_sets/2026q1
+      fsds_dir: coverage/amzn/inputs/sec_xbrl
       cik: 1018724
       form: 10-K
 
   # Forward guidance from the most recent earnings release
   - type: earnings_release
     args:
-      html_path: data/ir/amzn/latest_press_release.htm
+      html_path: coverage/amzn/inputs/ir/latest_press_release.htm
 
   # Insider activity (recent Form 4s)
   - type: form4
     args:
-      form4_dir: data/sec/amzn
+      form4_dir: coverage/amzn/inputs/sec_filings
 
-  # Macro inputs (rf, credit spread, FX) — shared across companies; refresh
-  # via scripts/refresh_macro_fred.py when rates move.
+  # Macro inputs (rf, credit spread, FX) — per-company copy refreshed via
+  # scripts/refresh_macro_fred.py when rates move.
   - type: macro
     args:
-      path: data/macro_inputs/us_default.yaml
+      path: coverage/amzn/inputs/macro/inputs.yaml
