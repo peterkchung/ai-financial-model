@@ -7,6 +7,7 @@ name = "ai-financial-model"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "anthropic" },
     { name = "beautifulsoup4" },
     { name = "click" },
     { name = "lxml" },
@@ -20,13 +21,10 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
 ]
-llm = [
-    { name = "anthropic" },
-]
 
 [package.metadata]
 requires-dist = [
-    { name = "anthropic", marker = "extra == 'llm'", specifier = ">=0.40" },
+    { name = "anthropic", specifier = ">=0.40" },
     { name = "beautifulsoup4", specifier = ">=4.12" },
     { name = "click", specifier = ">=8.1" },
     { name = "lxml", specifier = ">=5.0" },
@@ -36,7 +34,7 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "pyyaml", specifier = ">=6.0" },
 ]
-provides-extras = ["llm", "dev"]
+provides-extras = ["dev"]
 
 [[package]]
 name = "annotated-types"

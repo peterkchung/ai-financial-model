@@ -20,6 +20,9 @@ coverage/*/outputs/
 # Transient bulk download cache (SEC FSDS, etc). Disposable; nothing committed.
 data/
 
+# Secrets — .env contains API keys; .env.example is a committed template
+.env
+
 # IDE
 .vscode/
 .idea/

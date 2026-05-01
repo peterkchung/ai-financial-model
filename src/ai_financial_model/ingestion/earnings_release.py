@@ -1,29 +1,79 @@
-# About: Earnings press release ingester. Pulls forward guidance from the
-# 8-K Ex 99.1 HTML (and Ex 99.2 if present). Press-release prose varies a lot
-# in structure; we use targeted regex on the "Financial Guidance" section.
-# Quarterly current-period numbers are already in the 10-Q via XBRL, so this
-# ingester focuses on what's *only* in the press release: forward guidance.
+# About: Earnings press release ingester. Uses Claude (default: Sonnet 4.6)
+# to extract forward guidance from 8-K Ex 99.1 prose via tool use with a
+# strict-mode schema. Falls back to empty ForwardGuidance if the LLM call
+# fails — the pipeline never fail-stops on an extraction hiccup.
 
 from __future__ import annotations
 from pathlib import Path
 from typing import Optional
-import re
 
 from bs4 import BeautifulSoup
 
 from ai_financial_model.ingestion.base import Ingester
 from ai_financial_model.schema import ExtractedFinancials, ForwardGuidance
+from ai_financial_model.llm import extract_via_tool
 
 
-# Match e.g. "$155.0 billion and $160.5 billion" or "$155 billion to $160 billion"
-RANGE_BILLIONS = re.compile(
-    r"\$?\s*([\d,.]+)\s*(?:billion|B)\b[^.$]{0,80}?\$?\s*([\d,.]+)\s*(?:billion|B)\b",
-    re.IGNORECASE,
-)
+SYSTEM_PROMPT = """You extract forward financial guidance from earnings press releases.
+
+Locate the section where the company states its expectations for the next
+fiscal period — typically labeled "Financial Guidance", "Guidance", or
+"Outlook". Then call the `record_guidance` tool with the extracted figures.
+
+Conventions:
+- `period`: the next fiscal period being guided. Format examples: "Q2 2026",
+  "FY2026", "first half 2026". Null if no period is named.
+- `revenue_low` / `revenue_high`: the lower and upper bounds of revenue or
+  net-sales guidance, IN MILLIONS USD. Convert as needed: a guide of "$194
+  billion to $199 billion" becomes 194000 / 199000. Null if not disclosed.
+- `operating_income_low` / `operating_income_high`: same units, for operating
+  income guidance. Null if not disclosed.
+- `notes`: 1-2 short sentences quoting the verbatim guidance language. Null
+  if no guidance found.
+
+Do not infer or extrapolate figures that aren't explicitly stated in the
+release. If the release contains no forward guidance, call the tool with
+all fields null.
+"""
+
+GUIDANCE_TOOL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "period": {
+            "type": ["string", "null"],
+            "description": "Period the guidance is for, e.g. 'Q2 2026'.",
+        },
+        "revenue_low": {
+            "type": ["number", "null"],
+            "description": "Lower bound of revenue / net-sales guidance, in $-millions.",
+        },
+        "revenue_high": {
+            "type": ["number", "null"],
+            "description": "Upper bound of revenue / net-sales guidance, in $-millions.",
+        },
+        "operating_income_low": {
+            "type": ["number", "null"],
+            "description": "Lower bound of operating-income guidance, in $-millions.",
+        },
+        "operating_income_high": {
+            "type": ["number", "null"],
+            "description": "Upper bound of operating-income guidance, in $-millions.",
+        },
+        "notes": {
+            "type": ["string", "null"],
+            "description": "Short verbatim summary of the guidance language.",
+        },
+    },
+    "required": [
+        "period", "revenue_low", "revenue_high",
+        "operating_income_low", "operating_income_high", "notes",
+    ],
+    "additionalProperties": False,
+}
 
 
 class EarningsReleaseIngester(Ingester):
-    """Parse a single press release HTML and extract forward guidance."""
+    """Parse one earnings press release HTML and extract forward guidance."""
 
     def __init__(self, html_path: Path):
         self.html_path = Path(html_path)
@@ -33,76 +83,29 @@ class EarningsReleaseIngester(Ingester):
         if not self.html_path.exists():
             return out
 
-        text = self._normalize(self.html_path.read_text(encoding="utf-8", errors="ignore"))
-        guidance = self._find_guidance(text)
-        if guidance:
-            out.forward_guidance = guidance
+        text = self._html_to_text(self.html_path)
+        if not text:
+            return out
+
+        result = extract_via_tool(
+            system=SYSTEM_PROMPT,
+            user_content=text,
+            tool_name="record_guidance",
+            tool_description="Record forward guidance extracted from the press release.",
+            input_schema=GUIDANCE_TOOL_SCHEMA,
+        )
+        if result:
+            try:
+                out.forward_guidance = ForwardGuidance(**result)
+            except Exception:
+                # Schema-strict mode should prevent this; defense in depth.
+                pass
 
         out.meta.source = f"earnings:{self.html_path.name}"
         return out
 
     @staticmethod
-    def _normalize(html: str) -> str:
+    def _html_to_text(path: Path) -> str:
+        html = path.read_text(encoding="utf-8", errors="ignore")
         soup = BeautifulSoup(html, "lxml")
         return soup.get_text(" ", strip=True)
-
-    def _find_guidance(self, text: str) -> Optional[ForwardGuidance]:
-        # Locate the guidance section
-        m = re.search(r"financial guidance|guidance\s+for\s+the\s+(?:second|third|fourth|first)",
-                      text, re.IGNORECASE)
-        if not m:
-            return None
-        # Look at the ~2K chars after the heading
-        window = text[m.start(): m.start() + 2000]
-
-        period = self._period_from_window(window)
-        rev_lo, rev_hi = self._first_revenue_range(window)
-        oi_lo, oi_hi = self._first_op_income_range(window)
-
-        if rev_lo is None and oi_lo is None:
-            return None
-        return ForwardGuidance(
-            period=period, revenue_low=rev_lo, revenue_high=rev_hi,
-            operating_income_low=oi_lo, operating_income_high=oi_hi,
-            notes=window[:400],
-        )
-
-    @staticmethod
-    def _period_from_window(text: str) -> Optional[str]:
-        m = re.search(r"(first|second|third|fourth)\s+quarter\s+(\d{4})", text, re.IGNORECASE)
-        if m:
-            qmap = {"first": "Q1", "second": "Q2", "third": "Q3", "fourth": "Q4"}
-            return f"{qmap[m.group(1).lower()]} {m.group(2)}"
-        m = re.search(r"full year\s+(\d{4})", text, re.IGNORECASE)
-        if m:
-            return f"FY{m.group(1)}"
-        return None
-
-    @staticmethod
-    def _first_revenue_range(text: str) -> tuple[Optional[float], Optional[float]]:
-        # Search near "Net sales"
-        m = re.search(r"Net sales.{0,200}", text)
-        if not m:
-            return (None, None)
-        rng = RANGE_BILLIONS.search(m.group(0))
-        if not rng:
-            return (None, None)
-        try:
-            return (float(rng.group(1).replace(",", "")) * 1_000,
-                    float(rng.group(2).replace(",", "")) * 1_000)
-        except ValueError:
-            return (None, None)
-
-    @staticmethod
-    def _first_op_income_range(text: str) -> tuple[Optional[float], Optional[float]]:
-        m = re.search(r"Operating income.{0,200}", text)
-        if not m:
-            return (None, None)
-        rng = RANGE_BILLIONS.search(m.group(0))
-        if not rng:
-            return (None, None)
-        try:
-            return (float(rng.group(1).replace(",", "")) * 1_000,
-                    float(rng.group(2).replace(",", "")) * 1_000)
-        except ValueError:
-            return (None, None)
