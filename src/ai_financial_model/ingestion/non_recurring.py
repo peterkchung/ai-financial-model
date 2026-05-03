@@ -81,15 +81,15 @@ ITEMS_TOOL_SCHEMA = {
 class NonRecurringItemsIngester(Ingester):
     """Parse a press release for non-recurring items via Claude."""
 
-    def __init__(self, html_path: Path):
-        self.html_path = Path(html_path)
+    def __init__(self, path: Path):
+        self.path = Path(path)
 
     def extract(self, source: Optional[Path] = None) -> ExtractedFinancials:
         out = ExtractedFinancials()
-        if not self.html_path.exists():
+        if not self.path.exists():
             return out
 
-        text = self._html_to_text(self.html_path)
+        text = self._html_to_text(self.path)
         if not text:
             return out
 
@@ -108,7 +108,7 @@ class NonRecurringItemsIngester(Ingester):
                     # strict mode should prevent this; defense in depth
                     continue
 
-        out.meta.source = f"non_recurring:{self.html_path.name}"
+        out.meta.source = f"non_recurring:{self.path.name}"
         return out
 
     @staticmethod

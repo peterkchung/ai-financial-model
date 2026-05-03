@@ -28,14 +28,14 @@ ingesters:
   # Company financials — sliced from SEC FSDS bulk into a per-company subset
   - type: sec_xbrl
     args:
-      fsds_dir: coverage/amzn/inputs/sec_xbrl
+      path: coverage/amzn/inputs/sec_xbrl
       cik: 1018724
       form: 10-K
 
   # Forward guidance from the most recent earnings release
   - type: earnings_release
     args:
-      html_path: coverage/amzn/inputs/ir/latest_press_release.htm
+      path: coverage/amzn/inputs/ir/latest_press_release.htm
 
   # ---------------------------------------------------------------------
   # Demo extension point — uncomment to enable LLM-driven extraction of
@@ -44,12 +44,12 @@ ingesters:
   # ---------------------------------------------------------------------
   # - type: non_recurring_items
   #   args:
-  #     html_path: coverage/amzn/inputs/ir/latest_press_release.htm
+  #     path: coverage/amzn/inputs/ir/latest_press_release.htm
 
   # Insider activity (recent Form 4s)
   - type: form4
     args:
-      form4_dir: coverage/amzn/inputs/sec_filings
+      path: coverage/amzn/inputs/sec_filings
 
   # Macro inputs (rf, credit spread, FX) — per-company copy refreshed via
   # scripts/refresh_macro_fred.py when rates move.

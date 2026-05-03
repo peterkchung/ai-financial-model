@@ -81,10 +81,10 @@ One YAML edit. Open `coverage/amzn/config.yaml`. There's a commented-out block �
    # ---------------------------------------------------------------------
 -  # - type: non_recurring_items
 -  #   args:
--  #     html_path: coverage/amzn/inputs/ir/latest_press_release.htm
+-  #     path: coverage/amzn/inputs/ir/latest_press_release.htm
 +  - type: non_recurring_items
 +    args:
-+      html_path: coverage/amzn/inputs/ir/latest_press_release.htm
++      path: coverage/amzn/inputs/ir/latest_press_release.htm
 ```
 
 Or in your editor: select the three commented lines and remove the leading `# ` prefix from each.
@@ -197,7 +197,7 @@ To make the demo above actually execute, the following code work needs to land. 
 
 ### Ingester
 - [ ] New file `src/ai_financial_model/ingestion/non_recurring.py`:
-  - `NonRecurringItemsIngester(html_path)` class
+  - `NonRecurringItemsIngester(path)` class
   - System prompt: identify one-time items (gains/losses on investments, restructuring, impairments, settlements, etc.)
   - Tool schema: list of `NonRecurringItem`-shaped objects
   - HTML → text → `extract_via_tool()` → populate `out.non_recurring_items`

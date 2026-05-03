@@ -133,30 +133,30 @@ class SECXBRLIngester(Ingester):
     """Ingest from a SEC Financial Statement Data Sets directory.
 
     Args:
-        fsds_dir: directory containing sub.txt and num.txt (e.g. data/sec/financial_statement_data_sets/2026q1/)
+        path: directory containing sub.txt and num.txt (e.g. data/sec/financial_statement_data_sets/2026q1/)
         cik: SEC central index key, integer (e.g. 1018724 for AMZN)
         form: filing form to match (default '10-K')
     """
 
-    def __init__(self, fsds_dir: Path, cik: int, form: str = "10-K"):
-        self.fsds_dir = Path(fsds_dir)
+    def __init__(self, path: Path, cik: int, form: str = "10-K"):
+        self.path = Path(path)
         self.cik = int(cik)
         self.form = form
 
     # The base Ingester.extract takes a `source` Path; we accept it for
     # interface compatibility but ignore it (the source spec is in __init__).
     def extract(self, source: Optional[Path] = None) -> ExtractedFinancials:
-        sub_path = self.fsds_dir / "sub.txt"
-        num_path = self.fsds_dir / "num.txt"
+        sub_path = self.path / "sub.txt"
+        num_path = self.path / "num.txt"
         if not sub_path.exists() or not num_path.exists():
             raise FileNotFoundError(
-                f"FSDS dir missing sub.txt/num.txt: {self.fsds_dir}")
+                f"FSDS dir missing sub.txt/num.txt: {self.path}")
 
         adsh, sub_meta = self._find_filing(sub_path)
         facts = list(self._load_facts(num_path, adsh))
 
         out = ExtractedFinancials()
-        out.meta.source = f"sec-fsds:{self.fsds_dir.name}:{adsh}"
+        out.meta.source = f"sec-fsds:{self.path.name}:{adsh}"
         out.meta.cik = self.cik
         out.meta.company_name = sub_meta.get("name")
         out.meta.fiscal_year_end = self._fmt_date(sub_meta.get("period"))

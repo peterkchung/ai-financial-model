@@ -15,13 +15,13 @@ from ai_financial_model.schema import ExtractedFinancials, InsiderTransaction
 class Form4Ingester(Ingester):
     """Read all Form 4 XMLs in a directory; aggregate transactions."""
 
-    def __init__(self, form4_dir: Path, glob: str = "4_*.xml"):
-        self.form4_dir = Path(form4_dir)
+    def __init__(self, path: Path, glob: str = "4_*.xml"):
+        self.path = Path(path)
         self.glob = glob
 
     def extract(self, source: Optional[Path] = None) -> ExtractedFinancials:
         out = ExtractedFinancials()
-        for path in sorted(self.form4_dir.glob(self.glob)):
+        for path in sorted(self.path.glob(self.glob)):
             try:
                 txs = self._parse_one(path)
             except ET.ParseError:
@@ -29,7 +29,7 @@ class Form4Ingester(Ingester):
             out.insider_activity.extend(txs)
         # Most recent first
         out.insider_activity.sort(key=lambda t: t.filed_date or "", reverse=True)
-        out.meta.source = f"form4:{self.form4_dir.name}"
+        out.meta.source = f"form4:{self.path.name}"
         return out
 
     @staticmethod

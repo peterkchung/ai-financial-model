@@ -14,8 +14,8 @@ from ai_financial_model.schema import ExtractedFinancials
 class SEC10QIngester(Ingester):
     """Wrap SECXBRLIngester(form='10-Q'). HTML-only fallback is TBD."""
 
-    def __init__(self, fsds_dir: Path, cik: int):
-        self._inner = SECXBRLIngester(fsds_dir=fsds_dir, cik=cik, form="10-Q")
+    def __init__(self, path: Path, cik: int):
+        self._inner = SECXBRLIngester(path=path, cik=cik, form="10-Q")
 
     def extract(self, source: Optional[Path] = None) -> ExtractedFinancials:
         return self._inner.extract(source)

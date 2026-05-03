@@ -75,15 +75,15 @@ GUIDANCE_TOOL_SCHEMA = {
 class EarningsReleaseIngester(Ingester):
     """Parse one earnings press release HTML and extract forward guidance."""
 
-    def __init__(self, html_path: Path):
-        self.html_path = Path(html_path)
+    def __init__(self, path: Path):
+        self.path = Path(path)
 
     def extract(self, source: Optional[Path] = None) -> ExtractedFinancials:
         out = ExtractedFinancials()
-        if not self.html_path.exists():
+        if not self.path.exists():
             return out
 
-        text = self._html_to_text(self.html_path)
+        text = self._html_to_text(self.path)
         if not text:
             return out
 
@@ -101,7 +101,7 @@ class EarningsReleaseIngester(Ingester):
                 # Schema-strict mode should prevent this; defense in depth.
                 pass
 
-        out.meta.source = f"earnings:{self.html_path.name}"
+        out.meta.source = f"earnings:{self.path.name}"
         return out
 
     @staticmethod
