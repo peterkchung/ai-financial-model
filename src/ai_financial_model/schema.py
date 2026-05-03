@@ -119,6 +119,18 @@ class ForwardGuidance(BaseModel):
     notes: Optional[str] = None
 
 
+class NonRecurringItem(BaseModel):
+    """One material non-recurring item the company calls out in its release —
+    e.g. gain on convertible-note conversion, restructuring charge, goodwill
+    impairment, litigation settlement, one-time tax benefit. Carved out so
+    the analyst can normalize Other income / pre-tax income before forecasting."""
+    description: Optional[str] = None       # short label
+    amount: Optional[float] = None           # signed $-millions; positive = gain
+    period: Optional[str] = None             # e.g. "FY2025", "Q1 2026"
+    line_item: Optional[str] = None          # P&L line where it sits
+    source_quote: Optional[str] = None       # verbatim 1-sentence supporting quote
+
+
 class ExtractedFinancials(BaseModel):
     """The contract between Ingestion and Generation.
 
@@ -137,3 +149,4 @@ class ExtractedFinancials(BaseModel):
     industry: IndustryBenchmarks = Field(default_factory=IndustryBenchmarks)
     insider_activity: list[InsiderTransaction] = Field(default_factory=list)
     forward_guidance: Optional[ForwardGuidance] = None
+    non_recurring_items: list[NonRecurringItem] = Field(default_factory=list)

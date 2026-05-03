@@ -103,6 +103,28 @@ cover_rows = [
     ("  Guidance revenue midpoint", None, "_guidance_midpoint"),
     ("  Implied Q-avg / guidance midpoint", None, "_guidance_ratio"),
     ("", "", None),
+    ("Non-recurring items (carved out for normalization)", "", "_subhead"),
+    ("  #1 Description", "", "non_recurring_items[0].description"),
+    ("  #1 Period", "", "non_recurring_items[0].period"),
+    ("  #1 Line item", "", "non_recurring_items[0].line_item"),
+    ("  #1 Amount ($M)", "", "non_recurring_items[0].amount"),
+    ("  #1 Source quote", "", "non_recurring_items[0].source_quote"),
+    ("  #2 Description", "", "non_recurring_items[1].description"),
+    ("  #2 Period", "", "non_recurring_items[1].period"),
+    ("  #2 Line item", "", "non_recurring_items[1].line_item"),
+    ("  #2 Amount ($M)", "", "non_recurring_items[1].amount"),
+    ("  #2 Source quote", "", "non_recurring_items[1].source_quote"),
+    ("  #3 Description", "", "non_recurring_items[2].description"),
+    ("  #3 Period", "", "non_recurring_items[2].period"),
+    ("  #3 Line item", "", "non_recurring_items[2].line_item"),
+    ("  #3 Amount ($M)", "", "non_recurring_items[2].amount"),
+    ("  #3 Source quote", "", "non_recurring_items[2].source_quote"),
+    ("", "", None),
+    ("Other income normalization", "", "_subhead"),
+    ("  Other income (as-reported)", "=Historicals!D13", "_formula"),
+    ("  Non-recurring items, sum", None, "_nr_sum"),
+    ("  Normalized Other income", None, "_nr_normalized"),
+    ("", "", None),
     ("Methodology", "Two-stage FCFF DCF. Explicit 10-year forecast → terminal value via stable-growth Gordon. Operating leases treated as debt (post-ASC 842).", None),
     ("", "", None),
     ("Cell color legend", "", None),
@@ -121,6 +143,7 @@ cover_rows = [
 # Track row numbers for the guidance block so the sanity-check formulas can
 # reference the populated revenue_low/high cells.
 guidance_rows: dict[str, int] = {}
+non_recurring_rows: dict[str, int] = {}
 for i, (k, v, field) in enumerate(cover_rows, start=3):
     ws.cell(row=i, column=1, value=k).font = Font(bold=bool(k and not k.startswith("  ")))
 
@@ -150,19 +173,41 @@ for i, (k, v, field) in enumerate(cover_rows, start=3):
         style_computed(c, '0.0%')
         continue
 
+    if field == "_nr_sum":
+        # Sum of every non_recurring_items[*].amount cell collected so far.
+        amount_rows = [r for f, r in non_recurring_rows.items() if f.endswith(".amount")]
+        formula = "=SUM(" + ",".join(f"B{r}" for r in amount_rows) + ")" if amount_rows else "0"
+        c = ws.cell(row=i, column=2, value=formula)
+        style_computed(c, USD_M)
+        continue
+
+    if field == "_nr_normalized":
+        # Normalized Other income = (as-reported) - (non-recurring sum)
+        # Layout: as-reported is two rows above; sum is the row directly above.
+        c = ws.cell(row=i, column=2, value=f"=B{i-2}-B{i-1}")
+        style_computed(c, USD_M)
+        continue
+
     c = ws.cell(row=i, column=2, value=v)
     c.alignment = Alignment(wrap_text=True, vertical="top")
     if field and field.startswith("forward_guidance."):
         guidance_rows[field] = i
         style_actual(c, USD_M if "_low" in field or "_high" in field else None,
                      schema_field=field)
+    elif field and field.startswith("non_recurring_items["):
+        non_recurring_rows[field] = i
+        fmt = USD_M if field.endswith(".amount") else None
+        style_actual(c, fmt, schema_field=field)
     elif field:
         style_actual(c, schema_field=field)
 
-# Notes row needs more vertical space
+# Notes / source-quote rows need more vertical space for wrap-text
 notes_row = guidance_rows.get("forward_guidance.notes")
 if notes_row:
     ws.row_dimensions[notes_row].height = 60
+for f, r in non_recurring_rows.items():
+    if f.endswith(".source_quote"):
+        ws.row_dimensions[r].height = 50
 
 # ============== Sheet 2: Inputs ==============
 ws = wb.create_sheet("Inputs")

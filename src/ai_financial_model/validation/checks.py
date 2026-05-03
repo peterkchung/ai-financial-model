@@ -4,6 +4,7 @@
 # until the pipeline ingests more than one source per company.
 
 from __future__ import annotations
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -169,6 +170,12 @@ def validate_workbook(path: Path, tolerance_pct: float = DEFAULT_TOLERANCE_PCT) 
     # 10% buffer around the guidance midpoint for the YELLOW band.
     _check_forecast_vs_guidance(report, wb, base_revenue=ns)
 
+    # Check: non-recurring items as a proportion of pre-tax income. If the
+    # ingester populated any items, sum them and compare. Skipped silently if
+    # the non_recurring_items ingester wasn't enabled.
+    _check_non_recurring_proportion(report, wb,
+                                    pretax=rows.get("Income before tax", {}).get("fy_latest"))
+
     return report
 
 
@@ -239,4 +246,61 @@ def _check_forecast_vs_guidance(report: ValidationReport, wb, *,
         expected=midpoint,
         actual=quarterly_avg,
         cell_refs=["Cover!B11", "Cover!B12", "Forecast!C3", "Inputs!B11"],
+    ))
+
+
+_NON_RECURRING_AMOUNT_TAG = re.compile(r"non_recurring_items\[\d+\]\.amount")
+
+
+def _check_non_recurring_proportion(report: ValidationReport, wb, *,
+                                     pretax: Optional[float]) -> None:
+    """Sum non_recurring_items[*].amount cells from Cover; compare to pre-tax
+    income from Historicals. Severity:
+        GREEN  if |sum| / |pretax| < 5%   (immaterial)
+        YELLOW if 5% - 15%                (normalize before forecasting)
+        RED    if > 15%                   (do NOT capitalize aggregate Other
+                                           income into terminal value)
+    Skipped silently if no items were populated or if pretax is unavailable.
+    """
+    if "Cover" not in wb.sheetnames or pretax is None or pretax == 0:
+        return
+
+    cover = wb["Cover"]
+    total = 0.0
+    any_seen = False
+    for row in cover.iter_rows():
+        for cell in row:
+            if cell.comment is None:
+                continue
+            if not _NON_RECURRING_AMOUNT_TAG.search(cell.comment.text):
+                continue
+            v = _f(cell.value)
+            if v is not None:
+                total += v
+                any_seen = True
+    if not any_seen:
+        return  # ingester wasn't enabled; nothing to check
+
+    proportion = abs(total) / abs(pretax)
+    if proportion < 0.05:
+        sev = Severity.GREEN
+        msg = (f"Non-recurring items ${total:,.0f}M = {proportion:.1%} of "
+               f"pre-tax income — immaterial.")
+    elif proportion < 0.15:
+        sev = Severity.YELLOW
+        msg = (f"Non-recurring items ${total:,.0f}M = {proportion:.1%} of "
+               f"pre-tax income. Normalization recommended before forecasting.")
+    else:
+        sev = Severity.RED
+        msg = (f"Non-recurring items ${total:,.0f}M = {proportion:.1%} of "
+               f"pre-tax income exceeds 15% threshold. Do not capitalize "
+               f"aggregate Other income into terminal value without explicit "
+               f"normalization.")
+    report.findings.append(Finding(
+        check="non_recurring_items_proportion",
+        severity=sev,
+        message=msg,
+        expected=pretax,
+        actual=total,
+        cell_refs=["Cover (non-recurring items block)", "Historicals!D14"],
     ))

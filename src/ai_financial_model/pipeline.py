@@ -25,6 +25,7 @@ from ai_financial_model.ingestion.macro import MacroInputsIngester
 from ai_financial_model.ingestion.sec_xbrl import SECXBRLIngester
 from ai_financial_model.ingestion.sec_10q import SEC10QIngester
 from ai_financial_model.ingestion.earnings_release import EarningsReleaseIngester
+from ai_financial_model.ingestion.non_recurring import NonRecurringItemsIngester
 from ai_financial_model.ingestion.form4 import Form4Ingester
 
 
@@ -34,6 +35,7 @@ INGESTER_REGISTRY: dict[str, type] = {
     "sec_xbrl": SECXBRLIngester,
     "sec_10q": SEC10QIngester,
     "earnings_release": EarningsReleaseIngester,
+    "non_recurring_items": NonRecurringItemsIngester,
     "form4": Form4Ingester,
 }
 

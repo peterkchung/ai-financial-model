@@ -37,6 +37,15 @@ ingesters:
     args:
       html_path: coverage/amzn/inputs/ir/latest_press_release.htm
 
+  # ---------------------------------------------------------------------
+  # Demo extension point — uncomment to enable LLM-driven extraction of
+  # non-recurring items (Anthropic conversion gains, restructuring, etc.)
+  # See docs/demo-pipeline-extension.md for the demo arc.
+  # ---------------------------------------------------------------------
+  # - type: non_recurring_items
+  #   args:
+  #     html_path: coverage/amzn/inputs/ir/latest_press_release.htm
+
   # Insider activity (recent Form 4s)
   - type: form4
     args:
