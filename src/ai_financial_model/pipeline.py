@@ -14,6 +14,7 @@
 # in audit.json.
 
 from __future__ import annotations
+import logging
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -27,6 +28,8 @@ from ai_financial_model.ingestion.sec_10q import SEC10QIngester
 from ai_financial_model.ingestion.earnings_release import EarningsReleaseIngester
 from ai_financial_model.ingestion.non_recurring import NonRecurringItemsIngester
 from ai_financial_model.ingestion.form4 import Form4Ingester
+
+logger = logging.getLogger(__name__)
 
 
 # Registry of ingester types referenced from company configs by short name.
@@ -124,9 +127,11 @@ def ingest_all(config: dict[str, Any]) -> tuple[ExtractedFinancials, dict[str, s
     sources: list[str] = []
 
     for spec in config.get("ingesters", []):
+        logger.info("Running ingester: %s (args: %s)", spec["type"], spec.get("args", {}))
         ingester = build_ingester(spec)
         partial = ingester.extract()
         partial_source = partial.meta.source or spec["type"]
+        logger.info("  → Extracted data from: %s", partial_source)
         for path, _ in _walk_paths(partial):
             provenance[path] = partial_source
         if partial.meta.source:

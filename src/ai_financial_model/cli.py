@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 import json
+import logging
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,6 +24,13 @@ try:
     load_dotenv()
 except ImportError:
     pass  # python-dotenv not installed; assume env vars set externally
+
+# Configure logging for demo purposes - show INFO level by default
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s [%(name)s] %(message)s',
+    stream=sys.stderr,
+)
 
 
 @click.group()
