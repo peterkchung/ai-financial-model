@@ -179,14 +179,26 @@ def fetch_press_release(*, company: str, cik: str, ticker_prefix: str) -> None:
           REPO / f"coverage/{company}/inputs/ir/latest_press_release.htm")
 
 
-def fetch_fred_csvs(*, company: str) -> None:
+def fetch_fred_csvs(*, company: str) -> list[str]:
+    """Fetch FRED CSVs. Failures are non-fatal: returns the list of series
+    that could not be downloaded so the caller can warn but still finish.
+
+    FRED outages should not block seeding the SEC corpus, which is the
+    bulk of what an analyst needs. Re-running `make seed-data` is idempotent
+    and will resume on whichever CSVs are still missing."""
     print(f"\n[4/4] FRED macro CSVs (per-company copy)")
+    failed: list[str] = []
     for series in ["DGS10", "DGS30", "DBAA", "DEXUSEU", "CPIAUCSL", "GDPC1"]:
-        fetch(
-            f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}",
-            REPO / f"coverage/{company}/inputs/macro/fred/{series.lower()}.csv",
-            ua="Mozilla/5.0",
-        )
+        try:
+            fetch(
+                f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}",
+                REPO / f"coverage/{company}/inputs/macro/fred/{series.lower()}.csv",
+                ua="Mozilla/5.0",
+            )
+        except SystemExit as e:
+            print(f"  ! {series}: {e}")
+            failed.append(series)
+    return failed
 
 
 def main() -> None:
@@ -216,9 +228,13 @@ def main() -> None:
     fetch_form4s(company=args.company, cik=info["cik"])
     fetch_press_release(company=args.company, cik=info["cik"],
                         ticker_prefix=info["ticker_prefix"])
-    fetch_fred_csvs(company=args.company)
+    fred_failed = fetch_fred_csvs(company=args.company)
 
     print("\n✓ Done. Next steps:")
+    if fred_failed:
+        print(f"  ! FRED unavailable for: {', '.join(fred_failed)}.")
+        print(f"    Re-run `make seed-data COMPANY={args.company}` once FRED is back; ")
+        print(f"    it's idempotent and will only fetch the missing series.")
     print(f"  1. (optional) make refresh-macro COMPANY={args.company}")
     print(f"  2. make process-company COMPANY={args.company}   # end-to-end pipeline")
 
