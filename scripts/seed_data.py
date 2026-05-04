@@ -13,6 +13,7 @@ import json
 import os
 import re
 import shutil
+import time
 import urllib.request
 import urllib.error
 import zipfile
@@ -32,19 +33,31 @@ COMPANY_REGISTRY: dict[str, dict] = {
 }
 
 
-def fetch(url: str, dest: Path, ua: str = UA) -> None:
+def fetch(url: str, dest: Path, ua: str = UA, *, retries: int = 3, backoff: float = 2.0) -> None:
     if dest.exists() and dest.stat().st_size > 0:
         print(f"  ✓ {dest.relative_to(REPO)}")
         return
     dest.parent.mkdir(parents=True, exist_ok=True)
     print(f"  ⤓ {dest.relative_to(REPO)}")
     req = urllib.request.Request(url, headers={"User-Agent": ua})
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp, open(dest, "wb") as f:
-            shutil.copyfileobj(resp, f)
-    except urllib.error.HTTPError as e:
-        dest.unlink(missing_ok=True)
-        raise SystemExit(f"  ✗ {url} → HTTP {e.code}: {e.reason}") from e
+    for attempt in range(1, retries + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp, open(dest, "wb") as f:
+                shutil.copyfileobj(resp, f)
+            return
+        except urllib.error.HTTPError as e:
+            # Partial body may have hit disk before status was raised (rare); clean up either way.
+            dest.unlink(missing_ok=True)
+            raise SystemExit(f"  ✗ {url} → HTTP {e.code}: {e.reason}") from e
+        except (urllib.error.URLError, TimeoutError) as e:
+            # Read/connect timeouts and other transient socket errors. Drop any partial file
+            # so the size>0 idempotency check doesn't later treat it as complete.
+            dest.unlink(missing_ok=True)
+            if attempt == retries:
+                raise SystemExit(f"  ✗ {url} → {type(e).__name__}: {e} (after {retries} attempts)") from e
+            wait = backoff ** attempt
+            print(f"  … {type(e).__name__} on attempt {attempt}/{retries}; retrying in {wait:.0f}s")
+            time.sleep(wait)
 
 
 def fetch_sec_fsds() -> Path:
