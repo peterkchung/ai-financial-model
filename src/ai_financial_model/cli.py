@@ -17,6 +17,13 @@ from ai_financial_model.validation import validate_workbook
 from ai_financial_model.schema import ExtractedFinancials
 from ai_financial_model.pipeline import load_company_config, ingest_all
 
+# Auto-load .env file if present (contains ANTHROPIC_API_KEY, etc.)
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv not installed; assume env vars set externally
+
 
 @click.group()
 def cli() -> None:
