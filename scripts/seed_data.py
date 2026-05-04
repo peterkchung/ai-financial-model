@@ -188,12 +188,13 @@ def fetch_fred_csvs(*, company: str) -> list[str]:
     and will resume on whichever CSVs are still missing."""
     print(f"\n[4/4] FRED macro CSVs (per-company copy)")
     failed: list[str] = []
+    # Note: FRED's WAF rejects spoofed-browser UAs ("Mozilla/5.0" → HTTP/2
+    # INTERNAL_ERROR). The honest identifying UA used for SEC works fine.
     for series in ["DGS10", "DGS30", "DBAA", "DEXUSEU", "CPIAUCSL", "GDPC1"]:
         try:
             fetch(
                 f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series}",
                 REPO / f"coverage/{company}/inputs/macro/fred/{series.lower()}.csv",
-                ua="Mozilla/5.0",
             )
         except SystemExit as e:
             print(f"  ! {series}: {e}")
